@@ -94,7 +94,7 @@ public class ChunkServer implements Node, Protocol {
             Socket socketToRegistry = new Socket(registryHost, registryPort);
             TCPConnection connection = new TCPConnection(this, socketToRegistry);
 
-            Register register = new Register(Protocol.REGISTER_REQUEST,
+            Register register = new Register(Protocol.CHUNK_SERVER_REGISTER_REQUEST,
                     this.hostIP, this.nodePort, this.hostName);
 
             System.out.println(
@@ -155,13 +155,17 @@ public class ChunkServer implements Node, Protocol {
     }
 
     private void handleRegisterResponse(RegisterResponse response) {
+        /* TODO: prepare heartbeat payload and send heartbeat messages to controller */
         /* start the background routine to send heartbeat messages */
-        Timer timerMajorHeartbeat = new Timer("MajorHeartbeat");
-        /* this keeps delay 0 and period of 2 minutes = 120 * 1000 milliseconds */
-        timerMajorHeartbeat.schedule(new HeartBeat(true, this.controllerConnection), 0, 120000);
+        // Timer timerMajorHeartbeat = new Timer("MajorHeartbeat");
+        // /* this keeps delay 0 and period of 2 minutes = 120 * 1000 milliseconds */
+        // int majorHeartbeatInterval = 120000;
+        // timerMajorHeartbeat.schedule(new HeartBeat(true, this.controllerConnection),
+        // 0, 15000);
 
-        Timer timerMinorHeartbeat = new Timer("MinorHeartbeat");
-        timerMinorHeartbeat.schedule(new HeartBeat(false, controllerConnection), 0, 15000);
+        // Timer timerMinorHeartbeat = new Timer("MinorHeartbeat");
+        // timerMinorHeartbeat.schedule(new HeartBeat(false, controllerConnection), 0,
+        // 5000);
 
         System.out.println("Received registration response from the discovery: " + response.toString());
     }

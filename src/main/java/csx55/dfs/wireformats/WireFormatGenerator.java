@@ -33,7 +33,10 @@ public class WireFormatGenerator {
     public Event createMessage(byte[] marshalledData) throws IOException {
         int type = ByteBuffer.wrap(marshalledData).getInt();
         switch (type) {
-            case Protocol.REGISTER_REQUEST:
+            case Protocol.CHUNK_SERVER_REGISTER_REQUEST:
+                return new Register(marshalledData);
+
+            case Protocol.CLIENT_REGISTER_REQUEST:
                 return new Register(marshalledData);
 
             case Protocol.REGISTER_RESPONSE:

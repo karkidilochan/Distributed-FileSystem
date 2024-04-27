@@ -8,9 +8,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-/**
- * Register class represents a message for registering or deregistering a node.
- */
 public class Register implements Event {
     private int type;
 
@@ -25,21 +22,10 @@ public class Register implements Event {
         this.hostName = hostName;
     }
 
-    /**
-     * Constructs a Register object by unmarshalling the byte array.
-     * 
-     * @param marshalledData The marshalled byte array containing the data.
-     */
     public Register(byte[] marshalledData) throws IOException {
-        // creating input stream to read byte data sent over network connection
-        // ByteArrayInputStream bis = new ByteArrayInputStream(marshalledData);
-        // ObjectInputStream in = new ObjectInputStream(bis);
-        // Register newObject = (Register) in.readObject();
-        // copyRegister(newObject);
 
         ByteArrayInputStream inputData = new ByteArrayInputStream(marshalledData);
 
-        // wrap internal bytes array with data input stream
         DataInputStream din = new DataInputStream(new BufferedInputStream(inputData));
 
         this.type = din.readInt();
@@ -68,12 +54,6 @@ public class Register implements Event {
         return type;
     }
 
-    /**
-     * Marshals the Register object into a byte array.
-     * 
-     * @return The marshalled byte array.
-     * @throws IOException If an I/O error occurs.
-     */
     public byte[] getBytes() throws IOException {
         byte[] marshalledData;
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -100,20 +80,10 @@ public class Register implements Event {
 
     }
 
-    /**
-     * Returns a string representation of the Register object.
-     * 
-     * @return A string representing the type and connection details.
-     */
     public String getRegisterReadable() {
         return Integer.toString(this.type) + " " + this.getConnectionReadable();
     }
 
-    /**
-     * Returns a readable representation of the connection details.
-     * 
-     * @return A string representing the IP address and port.
-     */
     public String getConnectionReadable() {
         return this.ipAddress + ":" + Integer.toString(this.port);
     }

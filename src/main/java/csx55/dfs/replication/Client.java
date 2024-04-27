@@ -7,13 +7,15 @@ import java.net.Socket;
 import java.util.Date;
 import java.util.Scanner;
 import java.util.Timer;
+import java.nio.file.Paths;
 
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
 import csx55.dfs.utils.HeartBeat;
 import csx55.dfs.utils.Node;
+import csx55.dfs.wireformats.ChunkServerList;
 import csx55.dfs.wireformats.Event;
-
+import csx55.dfs.wireformats.FetchChunkServers;
 import csx55.dfs.wireformats.Protocol;
 import csx55.dfs.wireformats.Register;
 import csx55.dfs.wireformats.RegisterResponse;
@@ -95,7 +97,7 @@ public class Client implements Node, Protocol {
             Socket socketToRegistry = new Socket(registryHost, registryPort);
             TCPConnection connection = new TCPConnection(this, socketToRegistry);
 
-            Register register = new Register(Protocol.REGISTER_REQUEST,
+            Register register = new Register(Protocol.CLIENT_REGISTER_REQUEST,
                     this.hostIP, this.nodePort, this.hostName);
 
             System.out.println(
@@ -122,6 +124,10 @@ public class Client implements Node, Protocol {
                 String line = scan.nextLine().toLowerCase();
                 String[] input = line.split("\\s+");
                 switch (input[0]) {
+
+                    case "upload":
+                        fetchChunkServers(input[1], input[2]);
+                        break;
 
                     case "exit":
                         // TODO:
@@ -151,6 +157,9 @@ public class Client implements Node, Protocol {
             case Protocol.REGISTER_RESPONSE:
                 handleRegisterResponse((RegisterResponse) event);
                 break;
+
+            case Protocol.CHUNK_SERVER_LIST:
+                handleFileUpload((ChunkServerList) event);
 
         }
     }
@@ -184,6 +193,34 @@ public class Client implements Node, Protocol {
 
     public String getFullAddress() {
         return fullAddress;
+    }
+
+    private void fetchChunkServers(String sourcePath, String destinationPath) {
+        /*
+         * split file into 64KB chunks
+         * each chunk should keep checksum
+         * checksum should be for 8KB slices of chunk -> done by chunk server ?
+         */
+
+        /*
+         * first fetch a list of 3 chunk servers from controller
+         * read file contents
+         * split it into chunks
+         * 
+         */
+        try {
+            controllerConnection.getTCPSenderThread()
+                    .sendData((new FetchChunkServers(sourcePath, destinationPath)).getBytes());
+
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error sending chunk servers fetch request: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private void handleFileUpload() {
+
     }
 
 }
