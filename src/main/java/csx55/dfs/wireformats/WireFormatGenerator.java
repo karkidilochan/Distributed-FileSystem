@@ -51,6 +51,15 @@ public class WireFormatGenerator {
             case Protocol.MINOR_HEARTBEAT:
                 return new MinorHeartbeat(marshalledData);
 
+            case Protocol.CHUNK_SERVER_LIST:
+                return new ChunkServerList(marshalledData);
+
+            case Protocol.CHUNK_TRANSFER:
+                return new ChunkTransfer(marshalledData);
+
+            case Protocol.FETCH_CHUNK_SERVERS:
+                return new FetchChunkServers(marshalledData);
+
             default:
                 System.out.println("Error: WireFormat could not be generated. " + type);
                 return null;

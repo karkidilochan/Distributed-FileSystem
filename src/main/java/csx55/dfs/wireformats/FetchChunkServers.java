@@ -13,11 +13,13 @@ public class FetchChunkServers implements Event {
 
     private String sourcePath;
     private String destinationPath;
+    private long fileSize;
 
-    public FetchChunkServers(String sourcePath, String destinationPath) {
+    public FetchChunkServers(String sourcePath, String destinationPath, long fileSize) {
         this.type = Protocol.FETCH_CHUNK_SERVERS;
         this.sourcePath = sourcePath;
         this.destinationPath = destinationPath;
+        this.fileSize = fileSize;
     }
 
     public FetchChunkServers(byte[] marshalledData) throws IOException {
@@ -27,6 +29,8 @@ public class FetchChunkServers implements Event {
         DataInputStream din = new DataInputStream(new BufferedInputStream(inputData));
 
         this.type = din.readInt();
+
+        this.fileSize = din.readLong();
 
         int len = din.readInt();
         byte[] stringData = new byte[len];
@@ -53,6 +57,8 @@ public class FetchChunkServers implements Event {
 
         dout.writeInt(type);
 
+        dout.writeLong(fileSize);
+
         byte[] stringBytes = sourcePath.getBytes();
         dout.writeInt(stringBytes.length);
         dout.write(stringBytes);
@@ -76,6 +82,10 @@ public class FetchChunkServers implements Event {
 
     public String getDestinationPath() {
         return destinationPath;
+    }
+
+    public long getFileSize() {
+        return fileSize;
     }
 
 }

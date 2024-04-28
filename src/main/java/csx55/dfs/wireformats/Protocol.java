@@ -12,8 +12,8 @@ public interface Protocol {
     final int MAJOR_HEARTBEAT = 3;
     final int MINOR_HEARTBEAT = 4;
 
-    final int FILE_TRANSFER = 5;
-    final int FILE_TRANSFER_RESPONSE = 6;
+    final int CHUNK_TRANSFER = 5;
+    final int CHUNK_TRANSFER_RESPONSE = 6;
     final int CHUNK_SERVER_REGISTER_REQUEST = 8;
     final int FETCH_CHUNK_SERVERS = 9;
     final int CHUNK_SERVER_LIST = 10;

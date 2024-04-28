@@ -1,19 +1,27 @@
 package csx55.dfs.replication;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
+import java.util.Random;
 import java.util.Scanner;
 import java.util.Timer;
-import java.nio.file.Paths;
 
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
 import csx55.dfs.utils.HeartBeat;
 import csx55.dfs.utils.Node;
 import csx55.dfs.wireformats.ChunkServerList;
+import csx55.dfs.wireformats.ChunkMessage;
+import csx55.dfs.wireformats.ChunkMessageResponse;
 import csx55.dfs.wireformats.Event;
 import csx55.dfs.wireformats.FetchChunkServers;
 import csx55.dfs.wireformats.Protocol;
@@ -161,6 +169,9 @@ public class Client implements Node, Protocol {
             case Protocol.CHUNK_SERVER_LIST:
                 handleFileUpload((ChunkServerList) event);
 
+            case Protocol.CHUNK_TRANSFER_RESPONSE:
+                handleChunkTransferResponse((ChunkMessageResponse) event, connection);
+
         }
     }
 
@@ -197,6 +208,16 @@ public class Client implements Node, Protocol {
 
     private void fetchChunkServers(String sourcePath, String destinationPath) {
         /*
+         * my approach:
+         * read file, get list of chunkservers in descending order of free space
+         * controller will send list of chunkservers that have free space at least the
+         * size of the file
+         * after getting list of chunkservers, separate file into chunks
+         * for each chunk pick a random chunkserver from the list and send the chunk to
+         * it,
+         * also pick two chunkservers and send it for replica
+         */
+        /*
          * split file into 64KB chunks
          * each chunk should keep checksum
          * checksum should be for 8KB slices of chunk -> done by chunk server ?
@@ -208,9 +229,12 @@ public class Client implements Node, Protocol {
          * split it into chunks
          * 
          */
+
         try {
+            File file = new File(sourcePath);
+            byte[] fileData = Files.readAllBytes(file.toPath());
             controllerConnection.getTCPSenderThread()
-                    .sendData((new FetchChunkServers(sourcePath, destinationPath)).getBytes());
+                    .sendData((new FetchChunkServers(sourcePath, destinationPath, fileData.length)).getBytes());
 
         } catch (IOException | InterruptedException e) {
             System.out.println("Error sending chunk servers fetch request: " + e.getMessage());
@@ -219,8 +243,106 @@ public class Client implements Node, Protocol {
 
     }
 
-    private void handleFileUpload() {
+    private void handleFileUpload(ChunkServerList message) {
+        /*
+         * after getting list of chunkservers, separate file into chunks
+         * for each chunk pick a random chunkserver from the list and send the chunk to
+         * it,
+         * also pick two chunkservers and send it for replica
+         */
 
+        try {
+
+            List<byte[]> chunks = getChunks(message.getSourcePath());
+            List<String> chunkServers = message.getList();
+
+            int sequenceNumber = 1;
+            for (byte[] chunk : chunks) {
+                String chunkServer = pickChunkServer(chunkServers);
+                Socket socketToChunk = new Socket(message.getIPAddress(chunkServer), message.getPort(chunkServer));
+                TCPConnection serverConnection = new TCPConnection(this, socketToChunk);
+
+                /* pick any two chunkservers excluding this one */
+                List<String> replicas = pickReplicas(chunkServer, chunkServers);
+
+                ChunkMessage transfer = new ChunkMessage(message.getDestinationPath(), sequenceNumber, chunk,
+                        replicas);
+
+                serverConnection.getTCPSenderThread().sendData(transfer.getBytes());
+                serverConnection.start();
+            }
+
+        } catch (Exception e) {
+            System.out.println("Error sending chunks to chunkserver" + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private List<byte[]> getChunks(String filePath) throws IOException {
+        File file = new File(filePath);
+        byte[] fileData = Files.readAllBytes(file.toPath());
+
+        List<byte[]> chunks = new ArrayList<>();
+        int offset = 0;
+        int chunkSize = 64 * 1024; // 64KB
+        int length;
+        byte[] chunk;
+
+        while (offset < fileData.length) {
+            /* keeping length of bytes to read either chunksize or remaining bytes left */
+            length = Math.min(chunkSize, fileData.length - offset);
+            chunk = new byte[length];
+            System.arraycopy(fileData, offset, chunk, 0, length);
+            chunks.add(chunk);
+            offset += length;
+        }
+
+        return chunks;
+
+    }
+
+    private String pickChunkServer(List<String> servers) {
+
+        Random random = new Random();
+        int randomIndex = random.nextInt(servers.size());
+        String randomElement = servers.get(randomIndex);
+        return randomElement;
+    }
+
+    private List<String> pickReplicas(String chunkServer, List<String> servers) {
+        List<String> chunkServersCopy = new ArrayList<>(servers);
+        List<String> replicas = new ArrayList<>();
+
+        chunkServersCopy.remove(chunkServer);
+
+        Random random = new Random();
+
+        int randomIndex1 = random.nextInt(chunkServersCopy.size());
+        int randomIndex2;
+
+        do {
+            randomIndex2 = random.nextInt(chunkServersCopy.size());
+        } while (randomIndex2 == randomIndex1);
+
+        String randomElement1 = chunkServersCopy.get(randomIndex1);
+        String randomElement2 = chunkServersCopy.get(randomIndex2);
+
+        replicas.add(randomElement1);
+        replicas.add(randomElement2);
+
+        return replicas;
+
+    }
+
+    private void handleChunkTransferResponse(ChunkMessageResponse message, TCPConnection connection) {
+        System.out.println("Received chunk transfer response from the chunk server: " + message.toString());
+        try {
+            connection.close();
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
     }
 
 }
