@@ -7,24 +7,24 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ChunkServerList implements Event {
     private int type;
 
     /* string of ipAddress:port */
-    private String hostAddressA;
-    private String hostAddressB;
-    private String hostAddressC;
 
+    private List<String> hostAddresses;
+    private int size;
     private String sourcePath;
     private String destinationPath;
 
-    public ChunkServerList(String hostAddressA, String hostAddressB, String hostAddressC, String sourcePath,
-            String destinationPath) {
+    public ChunkServerList(List<String> hostAddresses, String sourcePath,
+            String destinationPath, int size) {
         this.type = Protocol.CHUNK_SERVER_LIST;
-        this.hostAddressA = hostAddressA;
-        this.hostAddressB = hostAddressB;
-        this.hostAddressC = hostAddressC;
+        this.size = size;
+        this.hostAddresses = hostAddresses;
         this.sourcePath = sourcePath;
         this.destinationPath = destinationPath;
     }
@@ -38,20 +38,18 @@ public class ChunkServerList implements Event {
 
         this.type = din.readInt();
 
-        int len = din.readInt();
-        byte[] stringData = new byte[len];
-        din.readFully(stringData, 0, len);
-        this.hostAddressA = new String(stringData);
+        this.size = din.readInt();
 
-        len = din.readInt();
-        stringData = new byte[len];
-        din.readFully(stringData, 0, len);
-        this.hostAddressB = new String(stringData);
+        int len;
+        byte[] stringData;
 
-        len = din.readInt();
-        stringData = new byte[len];
-        din.readFully(stringData, 0, len);
-        this.hostAddressC = new String(stringData);
+        this.hostAddresses = new ArrayList<String>(this.size);
+        for (int i = 0; i < this.size; i++) {
+            len = din.readInt();
+            stringData = new byte[len];
+            din.readFully(stringData);
+            this.hostAddresses.add(new String(stringData));
+        }
 
         len = din.readInt();
         stringData = new byte[len];
@@ -78,17 +76,15 @@ public class ChunkServerList implements Event {
 
         dout.writeInt(type);
 
-        byte[] stringBytes = hostAddressA.getBytes();
-        dout.writeInt(stringBytes.length);
-        dout.write(stringBytes);
+        dout.writeInt(size);
 
-        stringBytes = hostAddressB.getBytes();
-        dout.writeInt(stringBytes.length);
-        dout.write(stringBytes);
+        for (String server : hostAddresses) {
+            byte[] bytes = server.getBytes();
+            dout.writeInt(bytes.length);
+            dout.write(bytes);
+        }
 
-        stringBytes = hostAddressC.getBytes();
-        dout.writeInt(stringBytes.length);
-        dout.write(stringBytes);
+        byte[] stringBytes;
 
         stringBytes = sourcePath.getBytes();
         dout.writeInt(stringBytes.length);
@@ -107,16 +103,8 @@ public class ChunkServerList implements Event {
 
     }
 
-    public String getHostA() {
-        return hostAddressA;
-    }
-
-    public String getHostB() {
-        return hostAddressB;
-    }
-
-    public String getHostC() {
-        return hostAddressC;
+    public List<String> getList() {
+        return hostAddresses;
     }
 
     public String getSourcePath() {

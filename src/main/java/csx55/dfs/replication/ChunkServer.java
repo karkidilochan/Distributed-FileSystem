@@ -1,10 +1,16 @@
 package csx55.dfs.replication;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Scanner;
 import java.util.Timer;
 
@@ -12,6 +18,8 @@ import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
 import csx55.dfs.utils.HeartBeat;
 import csx55.dfs.utils.Node;
+import csx55.dfs.wireformats.ChunkMessage;
+import csx55.dfs.wireformats.ChunkMessageResponse;
 import csx55.dfs.wireformats.Event;
 import csx55.dfs.wireformats.Protocol;
 import csx55.dfs.wireformats.Register;
@@ -35,6 +43,10 @@ public class ChunkServer implements Node, Protocol {
     private final String hostName;
     private final String hostIP;
     private final String fullAddress;
+    private final List<Chunk> chunksList;
+    private final List<Chunk> newChunksList;
+
+    private final String chunkPathPrefix = "/tmp/chunk-server/";
 
     // Constants for command strings
 
@@ -46,6 +58,8 @@ public class ChunkServer implements Node, Protocol {
         this.hostIP = hostIP;
         this.nodePort = nodePort;
         this.fullAddress = hostIP + ":" + nodePort;
+        this.chunksList = new ArrayList<>();
+        this.newChunksList = new ArrayList<>();
     }
 
     public static void main(String[] args) {
@@ -151,6 +165,9 @@ public class ChunkServer implements Node, Protocol {
                 handleRegisterResponse((RegisterResponse) event);
                 break;
 
+            case Protocol.CHUNK_TRANSFER:
+                handleChunkUpload((ChunkMessage) event, connection);
+
         }
     }
 
@@ -168,6 +185,53 @@ public class ChunkServer implements Node, Protocol {
         // 5000);
 
         System.out.println("Received registration response from the discovery: " + response.toString());
+    }
+
+    private void handleChunkUpload(ChunkMessage message, TCPConnection connection) {
+        /*
+         * get the chunk and store it along with metadata
+         * forward the chunk to the first element of replicas list
+         * send the second element of replicas list as payload, which the first one will
+         * use to further create a replica
+         */
+
+        Chunk chunk = new Chunk(message.getSequence(), message.getFilePath());
+
+        try {
+            chunk.createChecksumSlices(message.getChunk());
+
+            boolean isSuccessful = chunk.writeChunk(chunkPathPrefix, message);
+
+            byte status;
+            String response;
+            if (isSuccessful) {
+                status = Protocol.SUCCESS;
+                response = "Chunk creation was successful.";
+
+                chunksList.add(chunk);
+                newChunksList.add(chunk);
+            } else {
+                status = Protocol.FAILURE;
+                response = "Chunk creation failed.";
+            }
+
+            ChunkMessageResponse request = new ChunkMessageResponse(status, response);
+            connection.getTCPSenderThread().sendData(request.getBytes());
+
+        } catch (Exception e) {
+            System.out.println("Error while handling chunk upload" + e.getMessage());
+            e.printStackTrace();
+        }
+
+        /*
+         * first create the filename of the chunk with sequence number like this
+         * /SimFile.data_chunk2
+         * write it to the chunk directory
+         * keep track of it in the chunks list and new chunks list for the heartbeat
+         * then, create 8KB slices of the chunk and generate sha-1 checksum for each
+         * add those hashes into the list of the chunk object
+         */
+
     }
 
     private void exitChord() {

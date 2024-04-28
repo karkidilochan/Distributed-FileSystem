@@ -8,19 +8,19 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class FileTransferResponse implements Event {
+public class ChunkMessageResponse implements Event {
 
     private int type;
     private byte status;
     private String info;
 
-    public FileTransferResponse(byte status, String info) {
-        this.type = Protocol.FILE_TRANSFER_RESPONSE;
+    public ChunkMessageResponse(byte status, String info) {
+        this.type = Protocol.CHUNK_TRANSFER_RESPONSE;
         this.status = status;
         this.info = info;
     }
 
-    public FileTransferResponse(byte[] marshalledData) throws IOException {
+    public ChunkMessageResponse(byte[] marshalledData) throws IOException {
         ByteArrayInputStream inputData = new ByteArrayInputStream(marshalledData);
         DataInputStream din = new DataInputStream(new BufferedInputStream(inputData));
 

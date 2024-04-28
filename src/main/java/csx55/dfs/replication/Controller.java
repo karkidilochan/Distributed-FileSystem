@@ -2,11 +2,8 @@ package csx55.dfs.replication;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Scanner;
 
 import csx55.dfs.tcp.TCPConnection;
@@ -231,7 +228,10 @@ public class Controller implements Node {
     }
 
     private void sendChunkServers(FetchChunkServers request, TCPConnection connection) {
-        /* TODO: get the first 3 chunk servers with largest free space */
+        /*
+         * TODO: get all the chunkservers that have free space at least the size of the
+         * file
+         */
         String chunkServerA = "";
         for (Map.Entry<String, TCPConnection> entry : chunkServerConnections.entrySet()) {
             chunkServerA = entry.getKey();
