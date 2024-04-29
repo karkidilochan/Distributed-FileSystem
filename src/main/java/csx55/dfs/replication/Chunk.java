@@ -2,6 +2,7 @@ package csx55.dfs.replication;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -14,18 +15,20 @@ import java.util.List;
 
 import csx55.dfs.wireformats.ChunkMessage;
 
-public class Chunk {
+public class Chunk implements Serializable {
+    public String chunkHash;
     public int sequenceNumber;
     public int versionNo;
     public String lastModified;
+    /* this is the path of the chunk with sequence number */
     public String filePath;
     public List<String> sliceHashes;
+    // public boolean isCorrupted;
 
-    public Chunk(int sequenceNumber, String filePath) {
+    public Chunk(int sequenceNumber) {
         this.sequenceNumber = sequenceNumber;
         this.lastModified = getCurrentTime();
         this.versionNo = 0;
-        this.filePath = filePath;
     }
 
     private String getCurrentTime() {
@@ -35,7 +38,7 @@ public class Chunk {
         return currentTimeString;
     }
 
-    public boolean writeChunk(String chunkPathPrefix, ChunkMessage message) {
+    public boolean writeChunk(String chunkPathPrefix, String chunkPath, int sequence, byte[] chunk) {
         /*
          * first create the filename of the chunk with sequence number like this
          * /SimFile.data_chunk2
@@ -44,7 +47,9 @@ public class Chunk {
          * then, create 8KB slices of the chunk and generate sha-1 checksum for each
          * add those hashes into the list of the chunk object
          */
-        String uploadPath = chunkPathPrefix + message.getFilePath() + "_chunk" + message.getSequence();
+        String uploadPath = chunkPathPrefix + chunkPath + "_chunk" + sequence;
+        this.filePath = uploadPath;
+        this.chunkHash = getDigest(chunk);
         File chunkFile = new File(uploadPath);
 
         try {
@@ -54,7 +59,7 @@ public class Chunk {
                 // Create a new file
                 Files.createFile(filePath);
             }
-            Files.write(filePath, message.getChunk());
+            Files.write(filePath, chunk);
             System.out.println("Successfully wrote chunk: " + uploadPath);
 
             return true;
@@ -90,6 +95,33 @@ public class Chunk {
             System.out.println("Error while generating slices and their checksum: " + e.getMessage());
             e.printStackTrace();
         }
+
+    }
+
+    public List<Integer> findCorruptedSlice(byte[] corruptedChunk) {
+        int offset = 0;
+        int sliceSize = 8 * 1024; // 8KB
+        int length;
+
+        // int originalSize = sliceHashes.size();
+        List<Integer> corruptedSliceIndexes = new ArrayList<>();
+        int sliceIndex = 0;
+        while (offset < corruptedChunk.length) {
+            /* keeping length of bytes to read either chunksize or remaining bytes left */
+            length = Math.min(sliceSize, corruptedChunk.length - offset);
+            byte[] slice = new byte[length];
+            System.arraycopy(corruptedChunk, offset, slice, 0, length);
+
+            /* also create the checksum for this slice and add it to hashes list */
+            String sliceDigest = getDigest(slice);
+            if (sliceDigest != sliceHashes.get(sliceIndex)) {
+                corruptedSliceIndexes.add(sliceIndex);
+            }
+
+            offset += length;
+            sliceIndex += 1;
+        }
+        return corruptedSliceIndexes;
 
     }
 

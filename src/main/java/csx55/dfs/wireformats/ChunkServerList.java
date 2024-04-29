@@ -16,16 +16,14 @@ public class ChunkServerList implements Event {
     /* string of ipAddress:port */
 
     private List<String> hostAddresses;
-    private int size;
-    private String sourcePath;
     private String destinationPath;
+    private int sequenceNumber;
 
-    public ChunkServerList(List<String> hostAddresses, String sourcePath,
-            String destinationPath, int size) {
+    public ChunkServerList(List<String> hostAddresses,
+            String destinationPath, int sequenceNumber) {
         this.type = Protocol.CHUNK_SERVER_LIST;
-        this.size = size;
+        this.sequenceNumber = sequenceNumber;
         this.hostAddresses = hostAddresses;
-        this.sourcePath = sourcePath;
         this.destinationPath = destinationPath;
     }
 
@@ -38,23 +36,18 @@ public class ChunkServerList implements Event {
 
         this.type = din.readInt();
 
-        this.size = din.readInt();
+        this.sequenceNumber = din.readInt();
 
         int len;
         byte[] stringData;
 
-        this.hostAddresses = new ArrayList<String>(this.size);
-        for (int i = 0; i < this.size; i++) {
+        this.hostAddresses = new ArrayList<String>();
+        for (int i = 0; i < 3; i++) {
             len = din.readInt();
             stringData = new byte[len];
             din.readFully(stringData);
             this.hostAddresses.add(new String(stringData));
         }
-
-        len = din.readInt();
-        stringData = new byte[len];
-        din.readFully(stringData, 0, len);
-        this.sourcePath = new String(stringData);
 
         len = din.readInt();
         stringData = new byte[len];
@@ -76,7 +69,7 @@ public class ChunkServerList implements Event {
 
         dout.writeInt(type);
 
-        dout.writeInt(size);
+        dout.writeInt(sequenceNumber);
 
         for (String server : hostAddresses) {
             byte[] bytes = server.getBytes();
@@ -85,11 +78,6 @@ public class ChunkServerList implements Event {
         }
 
         byte[] stringBytes;
-
-        stringBytes = sourcePath.getBytes();
-        dout.writeInt(stringBytes.length);
-        dout.write(stringBytes);
-
         stringBytes = destinationPath.getBytes();
         dout.writeInt(stringBytes.length);
         dout.write(stringBytes);
@@ -107,10 +95,6 @@ public class ChunkServerList implements Event {
         return hostAddresses;
     }
 
-    public String getSourcePath() {
-        return sourcePath;
-    }
-
     public String getDestinationPath() {
         return destinationPath;
     }
@@ -121,6 +105,10 @@ public class ChunkServerList implements Event {
 
     public int getPort(String hostString) {
         return Integer.valueOf(hostString.split(":")[1]);
+    }
+
+    public int getSequence() {
+        return sequenceNumber;
     }
 
 }

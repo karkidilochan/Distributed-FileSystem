@@ -1,32 +1,34 @@
 package csx55.dfs.replication;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Random;
 import java.util.Scanner;
-import java.util.Timer;
+import java.util.concurrent.ConcurrentHashMap;
 
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
-import csx55.dfs.utils.HeartBeat;
 import csx55.dfs.utils.Node;
 import csx55.dfs.wireformats.ChunkServerList;
 import csx55.dfs.wireformats.ChunkMessage;
 import csx55.dfs.wireformats.ChunkMessageResponse;
 import csx55.dfs.wireformats.Event;
 import csx55.dfs.wireformats.FetchChunkServers;
+import csx55.dfs.wireformats.FetchChunksList;
+import csx55.dfs.wireformats.FetchChunksListResponse;
 import csx55.dfs.wireformats.Protocol;
 import csx55.dfs.wireformats.Register;
 import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.wireformats.RequestChunk;
+import csx55.dfs.wireformats.RequestChunkResponse;
 
 /**
  * Implementation of the Node interface, represents a messaging node in the
@@ -48,6 +50,7 @@ public class Client implements Node, Protocol {
     private final String fullAddress;
 
     // Constants for command strings
+    private ConcurrentHashMap<String, List<byte[]>> fileChunksMap;
 
     // create a TCP connection with the Registry
     private TCPConnection controllerConnection;
@@ -137,6 +140,9 @@ public class Client implements Node, Protocol {
                         fetchChunkServers(input[1], input[2]);
                         break;
 
+                    case "download":
+                        fetchChunksList(input[1], input[2]);
+
                     case "exit":
                         // TODO:
                         exitChord();
@@ -172,19 +178,17 @@ public class Client implements Node, Protocol {
             case Protocol.CHUNK_TRANSFER_RESPONSE:
                 handleChunkTransferResponse((ChunkMessageResponse) event, connection);
 
+            case Protocol.FETCH_CHUNKS_RESPONSE:
+                handleFetchChunksResponse((FetchChunksListResponse) event);
+
+            case Protocol.REQUEST_CHUNK_RESPONSE:
+                handleRequestChunkResponse((RequestChunkResponse) event, connection);
+
         }
     }
 
     private void handleRegisterResponse(RegisterResponse response) {
-        /* start the background routine to send heartbeat messages */
-        Timer timerMajorHeartbeat = new Timer("MajorHeartbeat");
-        /* this keeps delay 0 and period of 2 minutes = 120 * 1000 milliseconds */
-        timerMajorHeartbeat.schedule(new HeartBeat(true, this.controllerConnection), 0, 120000);
-
-        Timer timerMinorHeartbeat = new Timer("MinorHeartbeat");
-        timerMinorHeartbeat.schedule(new HeartBeat(false, controllerConnection), 0, 15000);
-
-        System.out.println("Received registration response from the discovery: " + response.toString());
+        System.out.println("Received registration response from the controller: " + response.toString());
     }
 
     private void exitChord() {
@@ -230,11 +234,30 @@ public class Client implements Node, Protocol {
          * 
          */
 
+        /*
+         * TODO: fetch chunk server for every chunk
+         * right now getting a list of chunks in one ping
+         * 
+         * possible solution:
+         * read the file, create chunks
+         * add it to a concurrenthashmap file: chunks[]
+         * use sequence number to identify each chunk
+         * so for this, create a loop to send bunch of requests to controller containing
+         * the sequence number as well
+         * take the sequence no from this response, read that part from chunks array and
+         * send it to that chunk server
+         */
+
         try {
-            File file = new File(sourcePath);
-            byte[] fileData = Files.readAllBytes(file.toPath());
-            controllerConnection.getTCPSenderThread()
-                    .sendData((new FetchChunkServers(sourcePath, destinationPath, fileData.length)).getBytes());
+
+            List<byte[]> chunks = getChunks(sourcePath);
+            fileChunksMap.put(destinationPath, chunks);
+
+            for (int i = 1; i < chunks.size() + 1; i++) {
+                controllerConnection.getTCPSenderThread()
+                        .sendData((new FetchChunkServers(destinationPath, i, chunks.size())).getBytes());
+                /* TODO: keep a sleep here for this thread */
+            }
 
         } catch (IOException | InterruptedException e) {
             System.out.println("Error sending chunk servers fetch request: " + e.getMessage());
@@ -252,24 +275,35 @@ public class Client implements Node, Protocol {
          */
 
         try {
+            List<byte[]> chunks = fileChunksMap.get(message.getDestinationPath());
+            int sequenceNumber = message.getSequence();
+            byte[] chunk = chunks.get(sequenceNumber - 1);
 
-            List<byte[]> chunks = getChunks(message.getSourcePath());
             List<String> chunkServers = message.getList();
+            String chunkServer = chunkServers.get(0);
+            Socket socketToChunk = new Socket(message.getIPAddress(chunkServer), message.getPort(chunkServer));
+            TCPConnection serverConnection = new TCPConnection(this, socketToChunk);
 
-            int sequenceNumber = 1;
-            for (byte[] chunk : chunks) {
-                String chunkServer = pickChunkServer(chunkServers);
-                Socket socketToChunk = new Socket(message.getIPAddress(chunkServer), message.getPort(chunkServer));
-                TCPConnection serverConnection = new TCPConnection(this, socketToChunk);
+            /* pick any two chunkservers excluding this one */
 
-                /* pick any two chunkservers excluding this one */
-                List<String> replicas = pickReplicas(chunkServer, chunkServers);
+            List<String> replicas = new ArrayList<>();
+            replicas.add(chunkServers.get(1));
+            replicas.add(chunkServers.get(2));
 
-                ChunkMessage transfer = new ChunkMessage(message.getDestinationPath(), sequenceNumber, chunk,
-                        replicas);
+            ChunkMessage transfer = new ChunkMessage(message.getDestinationPath(), sequenceNumber, chunk,
+                    replicas);
 
-                serverConnection.getTCPSenderThread().sendData(transfer.getBytes());
-                serverConnection.start();
+            serverConnection.getTCPSenderThread().sendData(transfer.getBytes());
+            serverConnection.start();
+
+            /*
+             * 
+             * remove the file from files chunk map after all the chunk sequence have been
+             * stored
+             */
+            if (sequenceNumber == chunks.size()) {
+                fileChunksMap.remove(message.getDestinationPath());
+
             }
 
         } catch (Exception e) {
@@ -289,6 +323,8 @@ public class Client implements Node, Protocol {
         int length;
         byte[] chunk;
 
+        /* TODO: padding chunk with zeros if length is less than chunksize */
+
         while (offset < fileData.length) {
             /* keeping length of bytes to read either chunksize or remaining bytes left */
             length = Math.min(chunkSize, fileData.length - offset);
@@ -302,47 +338,117 @@ public class Client implements Node, Protocol {
 
     }
 
-    private String pickChunkServer(List<String> servers) {
-
-        Random random = new Random();
-        int randomIndex = random.nextInt(servers.size());
-        String randomElement = servers.get(randomIndex);
-        return randomElement;
-    }
-
-    private List<String> pickReplicas(String chunkServer, List<String> servers) {
-        List<String> chunkServersCopy = new ArrayList<>(servers);
-        List<String> replicas = new ArrayList<>();
-
-        chunkServersCopy.remove(chunkServer);
-
-        Random random = new Random();
-
-        int randomIndex1 = random.nextInt(chunkServersCopy.size());
-        int randomIndex2;
-
-        do {
-            randomIndex2 = random.nextInt(chunkServersCopy.size());
-        } while (randomIndex2 == randomIndex1);
-
-        String randomElement1 = chunkServersCopy.get(randomIndex1);
-        String randomElement2 = chunkServersCopy.get(randomIndex2);
-
-        replicas.add(randomElement1);
-        replicas.add(randomElement2);
-
-        return replicas;
-
-    }
-
     private void handleChunkTransferResponse(ChunkMessageResponse message, TCPConnection connection) {
         System.out.println("Received chunk transfer response from the chunk server: " + message.toString());
         try {
             connection.close();
+
         } catch (Exception e) {
             System.out.println(e.getMessage());
             e.printStackTrace();
         }
     }
+
+    private void fetchChunksList(String clusterPath, String downloadPath) {
+        /* fetch list of the chunks of this file from cluster */
+        try {
+            FetchChunksList message = new FetchChunksList(clusterPath, downloadPath);
+            controllerConnection.getTCPSenderThread().sendData(message.getBytes());
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error while sending fetch chunks list request: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private void handleFetchChunksResponse(FetchChunksListResponse message) {
+        for (int i = 0; i < message.numberOfChunks; i++) {
+            try {
+                RequestChunk request = new RequestChunk(message.downloadPath,
+                        message.chunksList.get(i), i + 1, message.numberOfChunks);
+
+                String chunkServer = message.chunkServerList.get(i);
+
+                Socket socket = new Socket(chunkServer.split(":")[0], Integer.valueOf(chunkServer.split(":")[1]));
+                TCPConnection connection = new TCPConnection(this, socket);
+
+                // send "Register" message to the Registry
+                connection.getTCPSenderThread().sendData(request.getBytes());
+                connection.start();
+            } catch (IOException | InterruptedException e) {
+                System.out.println("Error while sending request chunk: " + e.getMessage());
+                e.printStackTrace();
+            }
+
+        }
+    }
+
+    private void handleRequestChunkResponse(RequestChunkResponse message, TCPConnection connection) {
+        try {
+            fileChunksMap.computeIfAbsent(message.getFilePath(), k -> new ArrayList<>(message.getTotalSize()));
+            fileChunksMap.get(message.getFilePath()).add(message.getSequence() - 1, message.getChunk());
+
+            connection.close();
+
+            if (fileChunksMap.get(message.getFilePath()).size() == message.getTotalSize()) {
+                writeFile(message.getFilePath(), fileChunksMap.get(message.getFilePath()));
+            }
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void writeFile(String downloadPath, List<byte[]> chunksList) {
+        try {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+
+            for (byte[] chunk : chunksList) {
+                byteArrayOutputStream.write(chunk);
+            }
+
+            FileOutputStream fileOutputStream = new FileOutputStream(downloadPath);
+            fileOutputStream.write(byteArrayOutputStream.toByteArray());
+            fileOutputStream.close();
+        } catch (Exception e) {
+            System.out.println("Error while writing file from chunks: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    // private String pickChunkServer(List<String> servers) {
+
+    // Random random = new Random();
+    // int randomIndex = random.nextInt(servers.size());
+    // String randomElement = servers.get(randomIndex);
+    // return randomElement;
+    // }
+
+    // private List<String> pickReplicas(String chunkServer, List<String> servers) {
+    // List<String> chunkServersCopy = new ArrayList<>(servers);
+    // List<String> replicas = new ArrayList<>();
+
+    // chunkServersCopy.remove(chunkServer);
+
+    // Random random = new Random();
+
+    // int randomIndex1 = random.nextInt(chunkServersCopy.size());
+    // int randomIndex2;
+
+    // do {
+    // randomIndex2 = random.nextInt(chunkServersCopy.size());
+    // } while (randomIndex2 == randomIndex1);
+
+    // String randomElement1 = chunkServersCopy.get(randomIndex1);
+    // String randomElement2 = chunkServersCopy.get(randomIndex2);
+
+    // replicas.add(randomElement1);
+    // replicas.add(randomElement2);
+
+    // return replicas;
+
+    // }
 
 }
