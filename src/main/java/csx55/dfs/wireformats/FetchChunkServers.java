@@ -11,14 +11,14 @@ import java.io.IOException;
 public class FetchChunkServers implements Event {
     private int type;
 
-    private String sourcePath;
     private String destinationPath;
+    private int sequenceNumber;
     private long fileSize;
 
-    public FetchChunkServers(String sourcePath, String destinationPath, long fileSize) {
+    public FetchChunkServers(String destinationPath, int sequence, long fileSize) {
         this.type = Protocol.FETCH_CHUNK_SERVERS;
-        this.sourcePath = sourcePath;
         this.destinationPath = destinationPath;
+        this.sequenceNumber = sequence;
         this.fileSize = fileSize;
     }
 
@@ -30,15 +30,11 @@ public class FetchChunkServers implements Event {
 
         this.type = din.readInt();
 
+        this.sequenceNumber = din.readInt();
         this.fileSize = din.readLong();
 
         int len = din.readInt();
         byte[] stringData = new byte[len];
-        din.readFully(stringData, 0, len);
-        this.sourcePath = new String(stringData);
-
-        len = din.readInt();
-        stringData = new byte[len];
         din.readFully(stringData, 0, len);
         this.destinationPath = new String(stringData);
 
@@ -57,13 +53,10 @@ public class FetchChunkServers implements Event {
 
         dout.writeInt(type);
 
+        dout.writeInt(sequenceNumber);
         dout.writeLong(fileSize);
 
-        byte[] stringBytes = sourcePath.getBytes();
-        dout.writeInt(stringBytes.length);
-        dout.write(stringBytes);
-
-        stringBytes = destinationPath.getBytes();
+        byte[] stringBytes = destinationPath.getBytes();
         dout.writeInt(stringBytes.length);
         dout.write(stringBytes);
 
@@ -76,12 +69,12 @@ public class FetchChunkServers implements Event {
 
     }
 
-    public String getSourcePath() {
-        return sourcePath;
-    }
-
     public String getDestinationPath() {
         return destinationPath;
+    }
+
+    public int getSequence() {
+        return sequenceNumber;
     }
 
     public long getFileSize() {

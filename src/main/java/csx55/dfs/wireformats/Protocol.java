@@ -17,6 +17,16 @@ public interface Protocol {
     final int CHUNK_SERVER_REGISTER_REQUEST = 8;
     final int FETCH_CHUNK_SERVERS = 9;
     final int CHUNK_SERVER_LIST = 10;
+    final int CREATE_REPLICA = 11;
+    final int CREATE_REPLICA_RESPONSE = 12;
+    final int FETCH_CHUNKS = 13;
+    final int FETCH_CHUNKS_RESPONSE = 14;
+
+    final int REQUEST_CHUNK = 15;
+    final int REQUEST_CHUNK_RESPONSE = 16;
+    final int REPORT_CHUNK_CORRUPTION = 17;
+    final int ERROR_CORRECTION = 18;
+    final int CHUNK_CORRECTION = 19;
 
     final byte SUCCESS = (byte) 200;
     final byte FAILURE = (byte) 500;

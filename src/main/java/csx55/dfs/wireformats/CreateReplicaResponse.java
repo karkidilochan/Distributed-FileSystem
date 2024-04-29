@@ -8,28 +8,24 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class ChunkMessageResponse implements Event {
+public class CreateReplicaResponse implements Event {
 
     private int type;
     private byte status;
     private String info;
-    private int sequenceNumber;
 
-    public ChunkMessageResponse(byte status, String info, int sequenceNumber) {
+    public CreateReplicaResponse(byte status, String info) {
         this.type = Protocol.CHUNK_TRANSFER_RESPONSE;
         this.status = status;
         this.info = info;
-        this.sequenceNumber = sequenceNumber;
     }
 
-    public ChunkMessageResponse(byte[] marshalledData) throws IOException {
+    public CreateReplicaResponse(byte[] marshalledData) throws IOException {
         ByteArrayInputStream inputData = new ByteArrayInputStream(marshalledData);
         DataInputStream din = new DataInputStream(new BufferedInputStream(inputData));
 
         this.type = din.readInt();
         this.status = din.readByte();
-        this.sequenceNumber = din.readInt();
-
         int len = din.readInt();
         byte[] infoData = new byte[len];
         din.readFully(infoData, 0, len);
@@ -49,8 +45,6 @@ public class ChunkMessageResponse implements Event {
 
         dout.writeInt(type);
         dout.writeByte(status);
-        dout.writeInt(sequenceNumber);
-
         byte[] infoData = info.getBytes();
         dout.writeInt(infoData.length);
         dout.write(infoData);
@@ -66,10 +60,6 @@ public class ChunkMessageResponse implements Event {
 
     public String toString() {
         return info;
-    }
-
-    public int getSequenceNumber() {
-        return sequenceNumber;
     }
 
 }

@@ -1,231 +1,430 @@
-// package csx55.dfs.erasure;
+package csx55.dfs.erasure;
 
-// import java.io.IOException;
-// import java.net.ServerSocket;
-// import java.util.ArrayList;
-// import java.util.HashMap;
-// import java.util.List;
-// import java.util.Map;
-// import java.util.Random;
-// import java.util.Scanner;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
-// import csx55.dfs.tcp.TCPConnection;
-// import csx55.dfs.tcp.TCPServer;
-// import csx55.dfs.wireformats.Event;
-// import csx55.dfs.wireformats.Protocol;
-// import csx55.dfs.wireformats.Register;
-// import csx55.dfs.wireformats.RegisterResponse;
-// import csx55.dfs.wireformats.SetupChord;
+import csx55.dfs.tcp.TCPConnection;
+import csx55.dfs.tcp.TCPServer;
+import csx55.dfs.utils.Node;
+import csx55.dfs.wireformats.Event;
+import csx55.dfs.wireformats.FetchChunkServers;
+import csx55.dfs.wireformats.FetchChunksList;
+import csx55.dfs.wireformats.FetchChunksListResponse;
+import csx55.dfs.wireformats.Protocol;
+import csx55.dfs.wireformats.Register;
+import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.wireformats.ReportChunkCorruption;
+import csx55.dfs.wireformats.ChunkServerList;
+import csx55.dfs.wireformats.ErrorCorrection;
+import csx55.dfs.wireformats.MajorHeartbeat;
+import csx55.dfs.wireformats.MinorHeartbeat;
 
-// public class Controller implements Node {
-//     // Constants representing different commands
-//     private static final String PEER_NODES = "peer-nodes";
+public class Controller implements Node {
+    // Constants representing different commands
 
-//     private Map<String, TCPConnection> connections = new HashMap<>();
+    private Map<String, TCPConnection> clientConnections = new HashMap<>();
 
-//     public static void main(String[] args) {
-//         // Check if the port number is provided as a command-line argument
-//         if (args.length < 1) {
-//             System.out.println("Error starting the Registry. Usage: java csx55.overlay.node.Registry portnum");
-//         }
+    /*
+     * stores reference to metadata for each chunkserver
+     * this will be used to update the metadata by heartbeats
+     */
+    private final ConcurrentHashMap<String, ChunkServerMetadata> chunkServersMetadata = new ConcurrentHashMap<>();
 
-//         Controller registry = new Controller();
+    /* chunkServer:timestamp */
+    private static final ConcurrentHashMap<String, Long> lastHeartbeatTimestamps = new ConcurrentHashMap<>();
 
-//         /*
-//          * defining serverSocket in try-with-resources statement ensures
-//          * that the serverSocket is closed after the block ends
-//          */
-//         try (ServerSocket serverSocket = new ServerSocket(Integer.valueOf(args[0]))) {
-//             /*
-//              * start the server thread after initializing the server socket
-//              * invoke start function to start a new thread execution(invoking run() is not
-//              * the right way)
-//              */
-//             (new Thread(new TCPServer(registry, serverSocket))).start();
+    /*
+     * this stores location of chunks and its two replicas
+     * will be used for retrieve chunk response to client
+     */
+    private final ConcurrentHashMap<String, List<ChunkServerMetadata>> chunkAndServerMap = new ConcurrentHashMap<>();
 
-//             // Take commands from console
-//             registry.takeCommands();
-//         } catch (IOException e) {
-//             System.out.println(e.getMessage());
-//             e.printStackTrace();
-//         }
-//     }
+    private boolean startedMonitoring = false;
 
-//     /* Takes user commands from console */
-//     private void takeCommands() {
-//         System.out.println("This is the Registry command console. Please enter a valid command to start the overlay.");
+    public static void main(String[] args) {
+        // Check if the port number is provided as a command-line argument
+        if (args.length < 1) {
+            System.out.println("Error starting the Registry. Usage: java csx55.overlay.node.Registry portnum");
+        }
 
-//         try (Scanner scan = new Scanner(System.in)) {
-//             while (true) {
-//                 String line = scan.nextLine().toLowerCase();
-//                 String[] input = line.split("\\s+");
-//                 switch (input[0]) {
-//                     case PEER_NODES:
-//                         listPeerNodes();
-//                         break;
+        Controller registry = new Controller();
 
-//                     default:
-//                         System.out.println("Please enter a valid command! Options are:\n" +
-//                                 " - peer-nodes\n");
-//                         break;
-//                 }
-//             }
-//         }
-//     }
+        /*
+         * defining serverSocket in try-with-resources statement ensures
+         * that the serverSocket is closed after the block ends
+         */
+        try (ServerSocket serverSocket = new ServerSocket(Integer.valueOf(args[0]))) {
+            /*
+             * start the server thread after initializing the server socket
+             * invoke start function to start a new thread execution(invoking run() is not
+             * the right way)
+             */
+            (new Thread(new TCPServer(registry, serverSocket))).start();
 
-//     public void handleIncomingEvent(Event event, TCPConnection connection) {
-//         switch (event.getType()) {
-//             case Protocol.REGISTER_REQUEST:
-//                 handleRegistrationEvent((Register) event, connection);
-//                 break;
+            // Take commands from console
+            registry.takeCommands();
+        } catch (IOException e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
 
-//             case Protocol.DEREGISTER_REQUEST:
-//                 handleDeregistrationEvent((Register) event, connection);
-//                 break;
-//         }
-//     }
+    /* Takes user commands from console */
+    private void takeCommands() {
+        System.out
+                .println("This is the Controller command console. Please enter a valid command to start the overlay.");
 
-//     private synchronized void handleRegistrationEvent(Register registerEvent, TCPConnection connection) {
-//         // typecast event object to Register
-//         String nodes = registerEvent.getConnectionReadable();
-//         String ipAddress = connection.getSocket().getInetAddress().getHostAddress();
+        try (Scanner scan = new Scanner(System.in)) {
+            while (true) {
+                String line = scan.nextLine().toLowerCase();
+                String[] input = line.split("\\s+");
+                switch (input[0]) {
 
-//         if (connections.containsKey(nodes)) {
-//             try {
-//                 connection.getTCPSenderThread().sendData((new Collision()).getBytes());
-//                 return;
+                    default:
+                        System.out.println("Please enter a valid command! Options are:\n" +
+                                " - peer-nodes\n");
+                        break;
+                }
+            }
+        }
+    }
 
-//             } catch (IOException | InterruptedException e) {
-//                 System.out.println(e.getMessage());
-//                 connections.remove(nodes);
-//                 e.printStackTrace();
-//                 return;
-//             }
-//         }
+    public void handleIncomingEvent(Event event, TCPConnection connection) {
+        switch (event.getType()) {
+            case Protocol.CLIENT_REGISTER_REQUEST:
+                handleClientRegistration((Register) event, connection);
+                break;
 
-//         boolean hasMismatch = checkMismatch(nodes, ipAddress);
-//         byte status;
-//         String message;
+            case Protocol.CHUNK_SERVER_REGISTER_REQUEST:
+                handleChunkServerRegistration((Register) event, connection);
+                break;
 
-//         String randomKey = null;
+            case Protocol.DEREGISTER_REQUEST:
+                handleDeregistrationEvent((Register) event, connection);
+                break;
 
-//         /* TODO: detect identifier collision */
-//         if (!hasMismatch && validatePeerID(registerEvent)) {
-//             /* validate peer id */
+            case Protocol.MAJOR_HEARTBEAT:
+                handleMajorHeartbeat((MajorHeartbeat) event);
+                break;
 
-//             if (connections.size() == 0) {
-//                 randomKey = nodes;
-//             } else {
-//                 Random random = new Random();
-//                 int randomIndex = random.nextInt(connections.keySet().size());
+            case Protocol.MINOR_HEARTBEAT:
+                handleMinorHeartbeat((MinorHeartbeat) event);
+                break;
 
-//                 // Retrieve the key at the random index
-//                 List<String> keysList = new ArrayList<>(connections.keySet());
-//                 randomKey = keysList.get(randomIndex);
-//             }
+            case Protocol.FETCH_CHUNK_SERVERS:
+                sendChunkServers((FetchChunkServers) event, connection);
+                break;
 
-//             connections.put(nodes, connection);
+            case Protocol.FETCH_CHUNKS:
+                sendChunks((FetchChunksList) event, connection);
+                break;
 
-//             message = "Registration request successful.  The number of messaging nodes currently "
-//                     + "constituting the overlay is (" + connections.size() + ").\n";
-//             status = Protocol.SUCCESS;
-//             System.out.println("Connected Node: " + nodes + " Peer ID: " + registerEvent.getPeerID());
+            case Protocol.REPORT_CHUNK_CORRUPTION:
+                handleChunkCorruption((ReportChunkCorruption) event);
 
-//         } else {
-//             message = "Unable to process request. Responding with a failure while peerID validation is "
-//                     + validatePeerID(registerEvent) + " and ping mismatch " + hasMismatch;
-//             System.out.println(message);
-//             status = Protocol.FAILURE;
-//         }
-//         RegisterResponse response = new RegisterResponse(status, message);
-//         try {
-//             connection.getTCPSenderThread().sendData(response.getBytes());
-//         } catch (IOException | InterruptedException e) {
-//             System.out.println(e.getMessage());
-//             connections.remove(nodes);
-//             e.printStackTrace();
-//         }
+        }
+    }
 
-//         /* send live peer info after sending register response message */
+    private synchronized void handleClientRegistration(Register registerEvent, TCPConnection connection) {
+        // typecast event object to Register
+        String nodes = registerEvent.getConnectionReadable();
+        String ipAddress = connection.getSocket().getInetAddress().getHostAddress();
 
-//         if (status == Protocol.SUCCESS) {
-//             sendLivePeerInfo(connection, randomKey);
-//         }
-//     }
+        boolean hasMismatch = checkMismatch(nodes, ipAddress);
+        byte status;
+        String message;
 
-//     private synchronized void handleDeregistrationEvent(Register registerEvent, TCPConnection connection) {
-//         // typecast event object to Register
-//         String nodes = registerEvent.getConnectionReadable();
-//         String ipAddress = connection.getSocket().getInetAddress().getHostAddress();
+        /* TODO: detect identifier collision */
+        if (!hasMismatch) {
+            /* validate peer id */
 
-//         boolean hasMismatch = checkMismatch(nodes, ipAddress);
-//         byte status;
-//         String message;
-//         if (!hasMismatch && connections.containsKey(nodes)) {
+            clientConnections.put(nodes, connection);
 
-//             connections.remove(nodes);
-//             System.out.println("Deregistered " + nodes + ". There are now ("
-//                     + connections.size() + ") connections.\n");
-//             message = "Deregistration request successful.  The number of messaging nodes currently "
-//                     + "constituting the overlay is (" + connections.size() + ").\n";
-//             status = Protocol.SUCCESS;
-//         } else {
-//             message = "Unable to process deregistration request. Responding with a failure. Mismatch and connection exists? "
-//                     + hasMismatch + connections.containsKey(nodes);
-//             System.out.println(message);
-//             status = Protocol.FAILURE;
-//         }
-//         RegisterResponse response = new RegisterResponse(status, message);
-//         try {
-//             connection.getTCPSenderThread().sendData(response.getBytes());
-//         } catch (IOException | InterruptedException e) {
-//             System.out.println(e.getMessage());
-//             e.printStackTrace();
-//         }
-//     }
+            message = "Registration request successful.  The number of clients currently is ("
+                    + clientConnections.size() + ").\n";
+            status = Protocol.SUCCESS;
+            System.out.println("Connected Node: " + nodes);
 
-//     private boolean checkMismatch(String nodeDetails, String connectionIP) {
-//         if (!nodeDetails.split(":")[0].equals(connectionIP)
-//                 && !connectionIP.equals("localhost")) {
-//             return true;
-//         } else {
-//             return false;
-//         }
-//     }
+        } else {
+            message = "Unable to process request. Responding with a failure while mismatch is" + hasMismatch;
+            System.out.println(message);
+            status = Protocol.FAILURE;
+        }
+        RegisterResponse response = new RegisterResponse(status, message);
+        try {
+            connection.getTCPSenderThread().sendData(response.getBytes());
+        } catch (IOException | InterruptedException e) {
+            System.out.println(e.getMessage());
+            clientConnections.remove(nodes);
+            e.printStackTrace();
+        }
 
-//     private boolean validatePeerID(Register registerEvent) {
-//         return Math.abs(registerEvent.getConnectionReadable().hashCode()) == registerEvent.getPeerID();
+    }
 
-//     }
+    private synchronized void handleChunkServerRegistration(Register registerEvent, TCPConnection connection) {
+        // typecast event object to Register
+        String nodes = registerEvent.getConnectionReadable();
+        String ipAddress = connection.getSocket().getInetAddress().getHostAddress();
 
-//     private void listPeerNodes() {
-//         if (connections.size() == 0) {
-//             System.out.println(
-//                     "No connections in the registry.");
-//         } else {
-//             connections.forEach((key, value) -> System.out.println(Math.abs(key.hashCode()) + " " + key));
-//         }
-//     }
+        boolean hasMismatch = checkMismatch(nodes, ipAddress);
+        byte status;
+        String message;
 
-//     private void sendLivePeerInfo(TCPConnection connection, String randomKey) {
-//         SetupChord message;
+        /* TODO: detect identifier collision */
+        if (!hasMismatch) {
+            /* validate peer id */
+            ChunkServerMetadata metadata = new ChunkServerMetadata(ipAddress, registerEvent.getHostPort(), connection);
+            chunkServersMetadata.put(nodes, metadata);
 
-//         // if (connections.size() == 1) {
-//         // message = new SetupChord(true);
-//         // } else {
-//         // /* send a random live peers network information */
+            message = "Registration request successful.  The number of chunk servers currently is ("
+                    + chunkServersMetadata.size() + ").\n";
+            status = Protocol.SUCCESS;
 
-//         String[] parts = randomKey.split(":");
+            System.out.println("Connected Node: " + nodes);
 
-//         message = new SetupChord(parts[0], Integer.parseInt(parts[1]));
-//         try {
-//             connection.getTCPSenderThread().sendData(message.getBytes());
-//         } catch (IOException | InterruptedException e) {
-//             System.out.println(e.getMessage());
-//             e.printStackTrace();
-//         }
-//         // }
+        } else {
+            message = "Unable to process request. Responding with a failure while mismatch is" + hasMismatch;
+            System.out.println(message);
+            status = Protocol.FAILURE;
+        }
+        RegisterResponse response = new RegisterResponse(status, message);
+        try {
+            connection.getTCPSenderThread().sendData(response.getBytes());
+        } catch (IOException | InterruptedException e) {
+            System.out.println(e.getMessage());
+            chunkServersMetadata.remove(nodes);
+            e.printStackTrace();
+        }
 
-//     }
+    }
 
-// }
+    /* TODO: handle exit of chunkserver and client */
+    private synchronized void handleDeregistrationEvent(Register registerEvent, TCPConnection connection) {
+        // // typecast event object to Register
+        // String nodes = registerEvent.getConnectionReadable();
+        // String ipAddress = connection.getSocket().getInetAddress().getHostAddress();
+
+        // boolean hasMismatch = checkMismatch(nodes, ipAddress);
+        // byte status;
+        // String message;
+        // if (!hasMismatch && connections.containsKey(nodes)) {
+
+        // connections.remove(nodes);
+        // System.out.println("Deregistered " + nodes + ". There are now ("
+        // + connections.size() + ") connections.\n");
+        // message = "De-registration request successful. The number of messaging nodes
+        // currently "
+        // + "constituting the overlay is (" + connections.size() + ").\n";
+        // status = Protocol.SUCCESS;
+        // } else {
+        // message = "Unable to process de-registration request. Responding with a
+        // failure. Mismatch and connection exists? "
+        // + hasMismatch + connections.containsKey(nodes);
+        // System.out.println(message);
+        // status = Protocol.FAILURE;
+        // }
+        // RegisterResponse response = new RegisterResponse(status, message);
+        // try {
+        // connection.getTCPSenderThread().sendData(response.getBytes());
+        // } catch (IOException | InterruptedException e) {
+        // System.out.println(e.getMessage());
+        // e.printStackTrace();
+        // }
+    }
+
+    private boolean checkMismatch(String nodeDetails, String connectionIP) {
+        if (!nodeDetails.split(":")[0].equals(connectionIP)
+                && !connectionIP.equals("localhost")) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private synchronized void handleMajorHeartbeat(MajorHeartbeat message) {
+        System.out.println("received major heartbeat");
+        ChunkServerMetadata metadata = chunkServersMetadata.get(message.chunkServerString);
+        metadata.updateFreeSpace(message.freeSpace);
+        metadata.updateChunksCount(message.numberOfChunks);
+        metadata.updateChunksList(message.chunksList);
+
+        /* now for each obtained all chunk update the chunk and server map */
+        for (String chunkPath : message.chunksList) {
+            if (chunkAndServerMap.containsKey(chunkPath)) {
+                List<ChunkServerMetadata> metadataList = chunkAndServerMap.get(chunkPath);
+                if (!metadataList.contains(metadata)) {
+                    metadataList.add(metadata);
+                }
+            } else {
+                List<ChunkServerMetadata> list = new ArrayList<>();
+                list.add(metadata);
+                chunkAndServerMap.put(chunkPath, list);
+            }
+
+        }
+
+        // send metadata of all chunks
+        // plus, total no of chunks, free space available(1GB - space used so far)
+    }
+
+    private synchronized void handleMinorHeartbeat(MinorHeartbeat message) {
+        System.out.println("received minor heartbeat");
+        // send metadata info of newly added chunks
+        // report file corruption if detected in this heart beat
+
+        ChunkServerMetadata metadata = chunkServersMetadata.get(message.chunkServerString);
+        metadata.updateFreeSpace(message.freeSpace);
+        metadata.updateChunksCount(message.numberOfChunks);
+        metadata.appendChunksList(message.newChunksList);
+
+        /* now for each obtained new chunk update the chunk and server map */
+        for (String chunkPath : message.newChunksList) {
+            chunkAndServerMap.computeIfAbsent(chunkPath, k -> new ArrayList<>()).add(metadata);
+
+        }
+
+        if (!startedMonitoring) {
+            startHeartBeatMonitoring();
+
+        }
+
+    }
+
+    private void sendChunkServers(FetchChunkServers request, TCPConnection connection) {
+        /*
+         * TODO: get all the chunkservers that have free space at least the size of the
+         * file
+         */
+        List<String> fileChunkServers = new ArrayList<>();
+
+        /*
+         * TODO: get 3 free chunk servers
+         * this is for testing only
+         */
+        List<Map.Entry<String, ChunkServerMetadata>> sortedServers = new ArrayList<>(chunkServersMetadata.entrySet());
+        Collections.sort(sortedServers,
+                (a, b) -> Long.compare(b.getValue().getFreeSpace(), a.getValue().getFreeSpace()));
+        List<Map.Entry<String, ChunkServerMetadata>> topThreeServers = sortedServers.subList(0,
+                Math.min(3, sortedServers.size()));
+
+        for (Map.Entry<String, ChunkServerMetadata> entry : topThreeServers) {
+            fileChunkServers.add(entry.getKey());
+        }
+
+        try {
+            ChunkServerList message = new ChunkServerList(fileChunkServers,
+                    request.getDestinationPath(), request.getSequence());
+            connection.getTCPSenderThread().sendData(message.getBytes());
+
+        } catch (Exception e) {
+            System.out.println("Error sending chunk servers list: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private void sendChunks(FetchChunksList message, TCPConnection connection) {
+        try {
+            /*
+             * from the chunkAndServerMap, get all the chunks that contain the clusterPath
+             * substring
+             */
+            List<String> keysContainingClusterPath = chunkAndServerMap.keySet().stream()
+                    .filter(key -> key.contains(message.clusterPath))
+                    .collect(Collectors.toList());
+
+            List<String> validChunkServers = new ArrayList<>();
+
+            for (String chunk : keysContainingClusterPath) {
+                String targetServer = getValidChunkServer(chunkAndServerMap.get(chunk), message.clusterPath);
+                validChunkServers.add(targetServer);
+            }
+
+            FetchChunksListResponse response = new FetchChunksListResponse(keysContainingClusterPath.size(),
+                    keysContainingClusterPath, validChunkServers, message.clusterPath, message.downloadPath);
+            connection.getTCPSenderThread().sendData(response.getBytes());
+        } catch (Exception e) {
+            System.out.println("Error while sending fetch chunks list request: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private String getValidChunkServer(List<ChunkServerMetadata> servers, String chunkFile) throws Exception {
+        for (ChunkServerMetadata server : servers) {
+            boolean checkIfFileInvalid = server.fileChunksList.get(chunkFile);
+            if (server.isAlive && !checkIfFileInvalid) {
+                return server.getFullAddress();
+            }
+        }
+        throw new Exception("Can't find valid chunk server for the chunk");
+    }
+
+    private void handleChunkCorruption(ReportChunkCorruption message) {
+        /*
+         * find another replica of this chunk
+         * send that replica a command to send correct slice of that index to this
+         * corrupted server
+         * perform error correction of the chunk slice
+         */
+        try {
+            ChunkServerMetadata server = chunkServersMetadata.get(message.originChunkServer);
+
+            if (message.isFixed) {
+                /* boolean for invalidity */
+                server.fileChunksList.put(message.chunkPath, false);
+            } else {
+                /* boolean for invalidity */
+                server.fileChunksList.put(message.chunkPath, true);
+                String validServer = getValidChunkServer(chunkAndServerMap.get(message.chunkPath), message.chunkPath);
+                ErrorCorrection payload = new ErrorCorrection(message.chunkPath,
+                        message.originChunkServer.split(":")[0],
+                        Integer.valueOf(message.originChunkServer.split(":")[1]));
+                TCPConnection connection = chunkServersMetadata.get(validServer).getConnection();
+                connection.getTCPSenderThread().sendData(payload.getBytes());
+            }
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    public void startHeartBeatMonitoring() {
+        Timer timer = new Timer();
+        timer.scheduleAtFixedRate(new TimerTask() {
+            public void run() {
+                checkHeartbeat();
+            }
+        }, 0, 20 * 1000);
+    }
+
+    private void checkHeartbeat() {
+        long currentTimestamp = System.currentTimeMillis();
+        for (Map.Entry<String, Long> entry : lastHeartbeatTimestamps.entrySet()) {
+            String serverId = entry.getKey();
+            long lastHeartbeatTime = entry.getValue();
+            if (currentTimestamp - lastHeartbeatTime > 20 * 1000) {
+                handleFailure(serverId);
+            }
+        }
+    }
+
+    private void handleFailure(String chunkServer) {
+        /*
+         * first remove this chunkserver from all the data structures
+         * replicate to new node to handle failure of this node
+         */
+    }
+
+}

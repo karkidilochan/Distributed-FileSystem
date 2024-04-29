@@ -1,242 +1,454 @@
-// package csx55.dfs.erasure;
+package csx55.dfs.erasure;
 
-// import java.io.IOException;
-// import java.net.InetAddress;
-// import java.net.ServerSocket;
-// import java.net.Socket;
-// import java.util.Date;
-// import java.util.Map;
-// import java.util.Scanner;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Scanner;
+import java.util.concurrent.ConcurrentHashMap;
 
-// import csx55.dfs.tcp.TCPConnection;
-// import csx55.dfs.tcp.TCPServer;
-// import csx55.dfs.utils.Node;
-// import csx55.dfs.wireformats.Event;
-// import csx55.dfs.wireformats.FileTransfer;
-// import csx55.dfs.wireformats.FileTransferResponse;
-// import csx55.dfs.wireformats.Protocol;
-// import csx55.dfs.wireformats.Register;
-// import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.tcp.TCPConnection;
+import csx55.dfs.tcp.TCPServer;
+import csx55.dfs.utils.Node;
+import csx55.dfs.wireformats.ChunkServerList;
+import csx55.dfs.wireformats.ChunkMessage;
+import csx55.dfs.wireformats.ChunkMessageResponse;
+import csx55.dfs.wireformats.Event;
+import csx55.dfs.wireformats.FetchChunkServers;
+import csx55.dfs.wireformats.FetchChunksList;
+import csx55.dfs.wireformats.FetchChunksListResponse;
+import csx55.dfs.wireformats.Protocol;
+import csx55.dfs.wireformats.Register;
+import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.wireformats.RequestChunk;
+import csx55.dfs.wireformats.RequestChunkResponse;
 
-// /**
-//  * Implementation of the Node interface, represents a messaging node in the
-//  * network overlay system.
-//  * Messaging nodes facilitate communication between other nodes in the overlay.
-//  * This class handles registration with a registry, establishment of
-//  * connections,
-//  * message routing, and messageStatistics tracking.
-//  */
-// public class Client implements Node, Protocol {
+/**
+ * Implementation of the Node interface, represents a messaging node in the
+ * network overlay system.
+ * Messaging nodes facilitate communication between other nodes in the overlay.
+ * This class handles registration with a registry, establishment of
+ * connections,
+ * message routing, and messageStatistics tracking.
+ */
+public class Client implements Node, Protocol {
 
-//     /*
-//      * port to listen for incoming connections, configured during messaging node
-//      * creation
-//      */
-//     private final Integer nodePort;
-//     private final String hostName;
-//     private Integer peerID;
-//     private final String hostIP;
-//     private final String fullAddress;
+    /*
+     * port to listen for incoming connections, configured during messaging node
+     * creation
+     */
+    private final Integer nodePort;
+    private final String hostName;
+    private final String hostIP;
+    private final String fullAddress;
 
-//     // Constants for command strings
+    // Constants for command strings
+    private ConcurrentHashMap<String, List<byte[]>> fileChunksMap;
 
-//     // create a TCP connection with the Registry
-//     private TCPConnection registryConnection;
+    // create a TCP connection with the Registry
+    private TCPConnection controllerConnection;
 
-//     private Client(String hostName, String hostIP, int nodePort, int peerID) {
-//         this.hostName = hostName;
-//         this.hostIP = hostIP;
-//         this.nodePort = nodePort;
-//         this.peerID = peerID;
-//         this.fullAddress = hostIP + ":" + nodePort;
-//     }
+    private Client(String hostName, String hostIP, int nodePort) {
+        this.hostName = hostName;
+        this.hostIP = hostIP;
+        this.nodePort = nodePort;
+        this.fullAddress = hostIP + ":" + nodePort;
+    }
 
-//     public static void main(String[] args) {
-//         if (args.length < 2) {
-//             printUsageAndExit();
-//         }
-//         System.out.println("Client is live at: " + new Date());
-//         try (ServerSocket serverSocket = new ServerSocket(0)) {
-//             // assign a random available port
-//             int nodePort = serverSocket.getLocalPort();
+    public static void main(String[] args) {
+        if (args.length < 2) {
+            printUsageAndExit();
+        }
+        System.out.println("Chunk server is live at: " + new Date());
+        try (ServerSocket serverSocket = new ServerSocket(0)) {
+            // assign a random available port
+            int nodePort = serverSocket.getLocalPort();
 
-//             String hostIP = InetAddress.getLocalHost().getHostAddress();
+            String hostIP = InetAddress.getLocalHost().getHostAddress();
 
-//             /* 32-bit integer id for client */
-//             String hostString = hostIP + ":" + String.valueOf(nodePort);
-//             int peerID = Math.abs(hostString.hashCode());
-//             System.out.println("hashcode of " + hostString + " " + peerID);
+            /*
+             * get local host name and use assigned nodePort to initialize a messaging node
+             */
+            Client node = new Client(
+                    InetAddress.getLocalHost().getHostName(), hostIP, nodePort);
 
-//             /*
-//              * get local host name and use assigned nodePort to initialize a messaging node
-//              */
-//             Client node = new Client(
-//                     InetAddress.getLocalHost().getHostName(), hostIP, nodePort, peerID);
+            /* start a new TCP server thread */
+            (new Thread(new TCPServer(node, serverSocket))).start();
 
-//             /* start a new TCP server thread */
-//             (new Thread(new TCPServer(node, serverSocket))).start();
+            // register this node with the registry
+            node.registerNode(args[0], Integer.valueOf(args[1]));
 
-//             // register this node with the registry
-//             node.registerNode(args[0], Integer.valueOf(args[1]));
+            // facilitate user input in the console
+            node.takeCommands();
+        } catch (IOException e) {
+            System.out.println("An error occurred: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
 
-//             // facilitate user input in the console
-//             node.takeCommands();
-//         } catch (IOException e) {
-//             System.out.println("An error occurred: " + e.getMessage());
-//             e.printStackTrace();
-//         }
-//     }
+    /**
+     * Print the correct usage of the program and exits with a non-zero status
+     * code.
+     */
+    private static void printUsageAndExit() {
+        System.err.println("Usage: java csx55.chord.node.Client controller-ip controller-port");
+        System.exit(1);
+    }
 
-//     /**
-//      * Print the correct usage of the program and exits with a non-zero status
-//      * code.
-//      */
-//     private static void printUsageAndExit() {
-//         System.err.println("Usage: java csx55.chord.node.ChunkServer controller-ip controller-port");
-//         System.exit(1);
-//     }
+    private void registerNode(String registryHost, Integer registryPort) {
+        try {
+            // create a socket to the Registry server
+            Socket socketToRegistry = new Socket(registryHost, registryPort);
+            TCPConnection connection = new TCPConnection(this, socketToRegistry);
 
-//     private void registerNode(String registryHost, Integer registryPort) {
-//         try {
-//             // create a socket to the Registry server
-//             Socket socketToRegistry = new Socket(registryHost, registryPort);
-//             TCPConnection connection = new TCPConnection(this, socketToRegistry);
+            Register register = new Register(Protocol.CLIENT_REGISTER_REQUEST,
+                    this.hostIP, this.nodePort, this.hostName);
 
-//             Register register = new Register(Protocol.REGISTER_REQUEST,
-//                     this.hostIP, this.nodePort, this.hostName, this.peerID);
+            System.out.println(
+                    "Address of the chunk server node is: " + this.hostIP + ":" + this.nodePort);
 
-//             System.out.println(
-//                     "Address of the client node is: " + this.hostIP + ":" + this.nodePort);
+            // send "Register" message to the Registry
+            connection.getTCPSenderThread().sendData(register.getBytes());
+            connection.start();
 
-//             // send "Register" message to the Registry
-//             connection.getTCPSenderThread().sendData(register.getBytes());
-//             connection.start();
+            // Set the registry connection for this node
+            this.controllerConnection = connection;
 
-//             // Set the registry connection for this node
-//             this.registryConnection = connection;
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error registering node: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
 
-//         } catch (IOException | InterruptedException e) {
-//             System.out.println("Error registering node: " + e.getMessage());
-//             e.printStackTrace();
-//         }
-//     }
+    private void takeCommands() {
+        System.out.println(
+                "Enter a command. Available commands: print-shortest-path, exit-overlay\n");
+        try (Scanner scan = new Scanner(System.in)) {
+            while (true) {
+                String line = scan.nextLine().toLowerCase();
+                String[] input = line.split("\\s+");
+                switch (input[0]) {
 
-//     private void takeCommands() {
-//         System.out.println(
-//                 "Enter a command. Available commands: print-shortest-path, exit-overlay\n");
-//         try (Scanner scan = new Scanner(System.in)) {
-//             while (true) {
-//                 String line = scan.nextLine().toLowerCase();
-//                 String[] input = line.split("\\s+");
-//                 switch (input[0]) {
+                    case "upload":
+                        fetchChunkServers(input[1], input[2]);
+                        break;
 
-//                     case "exit":
-//                         // TODO:
-//                         exitChord();
-//                         break;
+                    case "download":
+                        fetchChunksList(input[1], input[2]);
 
-//                     default:
-//                         System.out.println("Invalid Command. Available commands: exit\\n");
-//                         break;
-//                 }
-//             }
-//         } catch (Exception e) {
-//             System.err.println("An error occurred during command processing: " + e.getMessage());
-//             e.printStackTrace();
-//         } finally {
-//             System.out.println("Deregistering the node and terminating: " + hostName + ":" + nodePort);
-//             exitChord();
-//             System.exit(0);
-//         }
-//     }
+                    case "exit":
+                        // TODO:
+                        exitChord();
+                        break;
 
-//     public void handleIncomingEvent(Event event, TCPConnection connection) {
-//         // System.out.println("Received event: " + event.toString());
+                    default:
+                        System.out.println("Invalid Command. Available commands: exit\\n");
+                        break;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("An error occurred during command processing: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            System.out.println("De-registering the node and terminating: " + hostName + ":" + nodePort);
+            exitChord();
+            System.exit(0);
+        }
+    }
 
-//         switch (event.getType()) {
+    public void handleIncomingEvent(Event event, TCPConnection connection) {
+        // System.out.println("Received event: " + event.toString());
 
-//             case Protocol.REGISTER_RESPONSE:
-//                 handleRegisterResponse((RegisterResponse) event);
-//                 break;
+        switch (event.getType()) {
 
-//         }
-//     }
+            case Protocol.REGISTER_RESPONSE:
+                handleRegisterResponse((RegisterResponse) event);
+                break;
 
-//     private void retryRegistration() {
-//         try {
-//             // create a socket to the Registry server
-//             this.peerID = Math.abs(this.fullAddress.hashCode());
+            case Protocol.CHUNK_SERVER_LIST:
+                handleFileUpload((ChunkServerList) event);
 
-//             Register register = new Register(Protocol.REGISTER_REQUEST,
-//                     this.hostIP, this.nodePort, this.hostName, this.peerID);
+            case Protocol.CHUNK_TRANSFER_RESPONSE:
+                handleChunkTransferResponse((ChunkMessageResponse) event, connection);
 
-//             // send "Register" message to the Registry
-//             this.registryConnection.getTCPSenderThread().sendData(register.getBytes());
+            case Protocol.FETCH_CHUNKS_RESPONSE:
+                handleFetchChunksResponse((FetchChunksListResponse) event);
 
-//             /* initialize finger table */
+            case Protocol.REQUEST_CHUNK_RESPONSE:
+                handleRequestChunkResponse((RequestChunkResponse) event, connection);
 
-//         } catch (IOException | InterruptedException e) {
-//             System.out.println("Error registering node: " + e.getMessage());
-//             e.printStackTrace();
-//         }
-//     }
+        }
+    }
 
-//     private void handleRegisterResponse(RegisterResponse response) {
+    private void handleRegisterResponse(RegisterResponse response) {
+        System.out.println("Received registration response from the controller: " + response.toString());
+    }
 
-//         System.out.println("Received registration response from the discovery: " + response.toString());
-//     }
+    private void exitChord() {
+        /*
+         * while exiting, send all the files you were responsible for to your successor
+         */
 
-//     private void handleDiscoveryMessage(SetupChord message) {
-//         /*
-//          * first check if the setup chord is self or not i.e. its the first client in
-//          * the
-//          * chord
-//          */
-//         if (!message.getConnectionReadable().equals(fullAddress)) {
-//             try {
-//                 Socket socketToPeer = new Socket(message.getIPAddress(), message.getPort());
-//                 TCPConnection connection = new TCPConnection(this, socketToPeer);
+    }
 
-//                 /* send lookup request of the peer-id to this random client */
+    public String getIPAddress() {
+        return this.hostIP;
+    }
 
-//                 /*
-//                  * Basic workflow:
-//                  * 1. send request successor to random node
-//                  * 2. random node searches for your immediate predecessor, pings it through
-//                  * forwarded requests i.e. perform lookup hops with requests
-//                  * 3. the predecessor pings you with its successor
-//                  * 4. you update your successor with this info
-//                  */
+    public int getPort() {
+        return this.nodePort;
+    }
 
-//             } catch (IOException | InterruptedException e) {
-//                 System.out.println(e.getMessage());
-//                 e.printStackTrace();
-//             }
-//         }
+    public String getFullAddress() {
+        return fullAddress;
+    }
 
-//     }
+    private void fetchChunkServers(String sourcePath, String destinationPath) {
+        /*
+         * my approach:
+         * read file, get list of chunkservers in descending order of free space
+         * controller will send list of chunkservers that have free space at least the
+         * size of the file
+         * after getting list of chunkservers, separate file into chunks
+         * for each chunk pick a random chunkserver from the list and send the chunk to
+         * it,
+         * also pick two chunkservers and send it for replica
+         */
+        /*
+         * split file into 64KB chunks
+         * each chunk should keep checksum
+         * checksum should be for 8KB slices of chunk -> done by chunk server ?
+         */
 
-//     private void exitChord() {
-//         /*
-//          * while exiting, send all the files you were responsible for to your successor
-//          */
+        /*
+         * first fetch a list of 3 chunk servers from controller
+         * read file contents
+         * split it into chunks
+         * 
+         */
 
-//     }
+        /*
+         * TODO: fetch chunk server for every chunk
+         * right now getting a list of chunks in one ping
+         * 
+         * possible solution:
+         * read the file, create chunks
+         * add it to a concurrenthashmap file: chunks[]
+         * use sequence number to identify each chunk
+         * so for this, create a loop to send bunch of requests to controller containing
+         * the sequence number as well
+         * take the sequence no from this response, read that part from chunks array and
+         * send it to that chunk server
+         */
 
-//     public String getIPAddress() {
-//         return this.hostIP;
-//     }
+        try {
 
-//     public int getPort() {
-//         return this.nodePort;
-//     }
+            List<byte[]> chunks = getChunks(sourcePath);
+            fileChunksMap.put(destinationPath, chunks);
 
-//     public int getPeerID() {
-//         return this.peerID;
-//     }
+            for (int i = 1; i < chunks.size() + 1; i++) {
+                controllerConnection.getTCPSenderThread()
+                        .sendData((new FetchChunkServers(destinationPath, i, chunks.size())).getBytes());
+                /* TODO: keep a sleep here for this thread */
+            }
 
-//     public String getFullAddress() {
-//         return fullAddress;
-//     }
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error sending chunk servers fetch request: " + e.getMessage());
+            e.printStackTrace();
+        }
 
-// }
+    }
+
+    private void handleFileUpload(ChunkServerList message) {
+        /*
+         * after getting list of chunkservers, separate file into chunks
+         * for each chunk pick a random chunkserver from the list and send the chunk to
+         * it,
+         * also pick two chunkservers and send it for replica
+         */
+
+        try {
+            List<byte[]> chunks = fileChunksMap.get(message.getDestinationPath());
+            int sequenceNumber = message.getSequence();
+            byte[] chunk = chunks.get(sequenceNumber - 1);
+
+            List<String> chunkServers = message.getList();
+            String chunkServer = chunkServers.get(0);
+            Socket socketToChunk = new Socket(message.getIPAddress(chunkServer), message.getPort(chunkServer));
+            TCPConnection serverConnection = new TCPConnection(this, socketToChunk);
+
+            /* pick any two chunkservers excluding this one */
+
+            List<String> replicas = new ArrayList<>();
+            replicas.add(chunkServers.get(1));
+            replicas.add(chunkServers.get(2));
+
+            ChunkMessage transfer = new ChunkMessage(message.getDestinationPath(), sequenceNumber, chunk,
+                    replicas);
+
+            serverConnection.getTCPSenderThread().sendData(transfer.getBytes());
+            serverConnection.start();
+
+            /*
+             * 
+             * remove the file from files chunk map after all the chunk sequence have been
+             * stored
+             */
+            if (sequenceNumber == chunks.size()) {
+                fileChunksMap.remove(message.getDestinationPath());
+
+            }
+
+        } catch (Exception e) {
+            System.out.println("Error sending chunks to chunkserver" + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private List<byte[]> getChunks(String filePath) throws IOException {
+        File file = new File(filePath);
+        byte[] fileData = Files.readAllBytes(file.toPath());
+
+        List<byte[]> chunks = new ArrayList<>();
+        int offset = 0;
+        int chunkSize = 64 * 1024; // 64KB
+        int length;
+        byte[] chunk;
+
+        /* TODO: padding chunk with zeros if length is less than chunksize */
+
+        while (offset < fileData.length) {
+            /* keeping length of bytes to read either chunksize or remaining bytes left */
+            length = Math.min(chunkSize, fileData.length - offset);
+            chunk = new byte[length];
+            System.arraycopy(fileData, offset, chunk, 0, length);
+            chunks.add(chunk);
+            offset += length;
+        }
+
+        return chunks;
+
+    }
+
+    private void handleChunkTransferResponse(ChunkMessageResponse message, TCPConnection connection) {
+        System.out.println("Received chunk transfer response from the chunk server: " + message.toString());
+        try {
+            connection.close();
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void fetchChunksList(String clusterPath, String downloadPath) {
+        /* fetch list of the chunks of this file from cluster */
+        try {
+            FetchChunksList message = new FetchChunksList(clusterPath, downloadPath);
+            controllerConnection.getTCPSenderThread().sendData(message.getBytes());
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error while sending fetch chunks list request: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private void handleFetchChunksResponse(FetchChunksListResponse message) {
+        for (int i = 0; i < message.numberOfChunks; i++) {
+            try {
+                RequestChunk request = new RequestChunk(message.downloadPath,
+                        message.chunksList.get(i), i + 1, message.numberOfChunks);
+
+                String chunkServer = message.chunkServerList.get(i);
+
+                Socket socket = new Socket(chunkServer.split(":")[0], Integer.valueOf(chunkServer.split(":")[1]));
+                TCPConnection connection = new TCPConnection(this, socket);
+
+                // send "Register" message to the Registry
+                connection.getTCPSenderThread().sendData(request.getBytes());
+                connection.start();
+            } catch (IOException | InterruptedException e) {
+                System.out.println("Error while sending request chunk: " + e.getMessage());
+                e.printStackTrace();
+            }
+
+        }
+    }
+
+    private void handleRequestChunkResponse(RequestChunkResponse message, TCPConnection connection) {
+        try {
+            fileChunksMap.computeIfAbsent(message.getFilePath(), k -> new ArrayList<>(message.getTotalSize()));
+            fileChunksMap.get(message.getFilePath()).add(message.getSequence() - 1, message.getChunk());
+
+            connection.close();
+
+            if (fileChunksMap.get(message.getFilePath()).size() == message.getTotalSize()) {
+                writeFile(message.getFilePath(), fileChunksMap.get(message.getFilePath()));
+            }
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void writeFile(String downloadPath, List<byte[]> chunksList) {
+        try {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+
+            for (byte[] chunk : chunksList) {
+                byteArrayOutputStream.write(chunk);
+            }
+
+            FileOutputStream fileOutputStream = new FileOutputStream(downloadPath);
+            fileOutputStream.write(byteArrayOutputStream.toByteArray());
+            fileOutputStream.close();
+        } catch (Exception e) {
+            System.out.println("Error while writing file from chunks: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    // private String pickChunkServer(List<String> servers) {
+
+    // Random random = new Random();
+    // int randomIndex = random.nextInt(servers.size());
+    // String randomElement = servers.get(randomIndex);
+    // return randomElement;
+    // }
+
+    // private List<String> pickReplicas(String chunkServer, List<String> servers) {
+    // List<String> chunkServersCopy = new ArrayList<>(servers);
+    // List<String> replicas = new ArrayList<>();
+
+    // chunkServersCopy.remove(chunkServer);
+
+    // Random random = new Random();
+
+    // int randomIndex1 = random.nextInt(chunkServersCopy.size());
+    // int randomIndex2;
+
+    // do {
+    // randomIndex2 = random.nextInt(chunkServersCopy.size());
+    // } while (randomIndex2 == randomIndex1);
+
+    // String randomElement1 = chunkServersCopy.get(randomIndex1);
+    // String randomElement2 = chunkServersCopy.get(randomIndex2);
+
+    // replicas.add(randomElement1);
+    // replicas.add(randomElement2);
+
+    // return replicas;
+
+    // }
+
+}
