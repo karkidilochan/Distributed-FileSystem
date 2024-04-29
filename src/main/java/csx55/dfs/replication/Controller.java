@@ -37,6 +37,7 @@ public class Controller implements Node {
     /*
      * stores reference to metadata for each chunkserver
      * this will be used to update the metadata by heartbeats
+     * chunkServerString:metadata
      */
     private final ConcurrentHashMap<String, ChunkServerMetadata> chunkServersMetadata = new ConcurrentHashMap<>();
 
@@ -46,6 +47,7 @@ public class Controller implements Node {
     /*
      * this stores location of chunks and its two replicas
      * will be used for retrieve chunk response to client
+     * chunkPath:replicas
      */
     private final ConcurrentHashMap<String, List<ChunkServerMetadata>> chunkAndServerMap = new ConcurrentHashMap<>();
 
@@ -420,11 +422,51 @@ public class Controller implements Node {
         }
     }
 
-    private void handleFailure(String chunkServer) {
+    private synchronized void handleFailure(String failedChunkServer) {
         /*
          * first remove this chunkserver from all the data structures
          * replicate to new node to handle failure of this node
+         * Approach for this,
+         * find all the chunks this chunk server was holding
+         * then for each chunk, find the chunk servers that contain replicas
+         * find a chunk server that doesn't contain replica of this chunk
+         * then instruct this replica to send a copy of that chunk to this new chunk
+         * server
          */
+        ChunkServerMetadata failedMetadata = chunkServersMetadata.get(failedChunkServer);
+        failedMetadata.isAlive = false;
+        Map<String, String> affectedChunksReplicaMap = new HashMap<>();
+        ChunkServerMetadata bestCandidate;
+        for (Map.Entry<String, List<ChunkServerMetadata>> entry : chunkAndServerMap.entrySet()) {
+            List<ChunkServerMetadata> replicasList = entry.getValue();
+            if (replicasList.contains(failedMetadata)) {
+                List<ChunkServerMetadata> candidateServers = chunkServersMetadata.values().stream()
+                        .filter(metadata -> !replicasList.contains(metadata))
+                        .collect(Collectors.toList());
+
+                candidateServers.sort((m1, m2) -> Long.compare(m2.getFreeSpace(), m1.getFreeSpace()));
+
+                bestCandidate = candidateServers.get(0);
+
+                replicasList.remove(failedMetadata);
+                chunkServersMetadata.remove(failedChunkServer);
+
+                affectedChunksReplicaMap.put(entry.getKey(), replicasList.get(0).getFullAddress());
+
+                break;
+            }
+
+        }
+
+        /*
+         * now for affectedChunksReplicaMap entries, in a loop
+         * send ReplicateNewServer to the replica server, payload contains best
+         * candidate
+         * replica server will send the chunk to best candidate
+         * best candidate saves it, send the newchunkslist in minor heartbeat, ->
+         * updated in controller
+         */
+
     }
 
 }

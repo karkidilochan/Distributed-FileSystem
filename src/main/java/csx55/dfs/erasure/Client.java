@@ -212,40 +212,14 @@ public class Client implements Node, Protocol {
 
     private void fetchChunkServers(String sourcePath, String destinationPath) {
         /*
-         * my approach:
-         * read file, get list of chunkservers in descending order of free space
-         * controller will send list of chunkservers that have free space at least the
-         * size of the file
-         * after getting list of chunkservers, separate file into chunks
-         * for each chunk pick a random chunkserver from the list and send the chunk to
-         * it,
-         * also pick two chunkservers and send it for replica
-         */
-        /*
-         * split file into 64KB chunks
-         * each chunk should keep checksum
-         * checksum should be for 8KB slices of chunk -> done by chunk server ?
-         */
-
-        /*
-         * first fetch a list of 3 chunk servers from controller
-         * read file contents
-         * split it into chunks
-         * 
-         */
-
-        /*
-         * TODO: fetch chunk server for every chunk
-         * right now getting a list of chunks in one ping
-         * 
-         * possible solution:
-         * read the file, create chunks
-         * add it to a concurrenthashmap file: chunks[]
-         * use sequence number to identify each chunk
-         * so for this, create a loop to send bunch of requests to controller containing
-         * the sequence number as well
-         * take the sequence no from this response, read that part from chunks array and
-         * send it to that chunk server
+         * read the file and create chunks
+         * break it into k fragments => primary or data shards
+         * encode and expand to n fragments
+         * n > k
+         * n = k + m
+         * m => parity shards
+         * then fetch chunk server for each of these fragments
+         * k = 6, and m=3
          */
 
         try {
