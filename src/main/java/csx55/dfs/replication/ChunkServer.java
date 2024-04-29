@@ -158,7 +158,7 @@ public class ChunkServer implements Node, Protocol {
 
                     case "exit":
                         // TODO:
-                        exitChord();
+                        exitDfs();
                         break;
 
                     default:
@@ -171,7 +171,7 @@ public class ChunkServer implements Node, Protocol {
             e.printStackTrace();
         } finally {
             System.out.println("De-registering the node and terminating: " + hostName + ":" + nodePort);
-            exitChord();
+            exitDfs();
             System.exit(0);
         }
     }
@@ -447,7 +447,7 @@ public class ChunkServer implements Node, Protocol {
 
     }
 
-    private void exitChord() {
+    private void exitDfs() {
         /*
          * while exiting, send all the files you were responsible for to your successor
          */

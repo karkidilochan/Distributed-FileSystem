@@ -9,3 +9,7 @@ sourceSets {
 		}
 	}	
 }
+
+dependencies {
+    implementation files('libs/reed-solomon-erasure-coding.jar')
+}
