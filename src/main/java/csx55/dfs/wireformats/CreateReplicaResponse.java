@@ -15,7 +15,7 @@ public class CreateReplicaResponse implements Event {
     private String info;
 
     public CreateReplicaResponse(byte status, String info) {
-        this.type = Protocol.CHUNK_TRANSFER_RESPONSE;
+        this.type = Protocol.CREATE_REPLICA_RESPONSE;
         this.status = status;
         this.info = info;
     }

@@ -8,15 +8,19 @@ import java.util.Map;
 import csx55.dfs.tcp.TCPConnection;
 
 public class ChunkServerMetadata {
-    private String ipAddress;
-    private int port;
-    private long freeSpace;
-    private TCPConnection connection;
-    private long chunksCount;
+    public String ipAddress;
+    public int port;
+    public long freeSpace;
+    public TCPConnection connection;
+    public long chunksCount;
 
     /* hashmap of chunk file and its invalidity */
     public Map<String, Boolean> fileChunksList = new HashMap<>();
-    public boolean isAlive;
+    public boolean isAlive = true;
+
+    public ChunkServerMetadata() {
+
+    }
 
     public ChunkServerMetadata(String ipAddress, int port, TCPConnection connection) {
         this.ipAddress = ipAddress;

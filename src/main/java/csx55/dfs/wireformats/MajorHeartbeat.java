@@ -36,9 +36,14 @@ public class MajorHeartbeat implements Event {
         this.numberOfChunks = din.readLong();
         this.freeSpace = din.readLong();
 
+        int len = din.readInt();
+        byte[] strData = new byte[len];
+        din.readFully(strData, 0, len);
+        this.chunkServerString = new String(strData);
+
         this.chunksList = new ArrayList<String>();
         for (int i = 0; i < numberOfChunks; i++) {
-            int len = din.readInt();
+            len = din.readInt();
             byte[] stringData = new byte[len];
             din.readFully(stringData);
             this.chunksList.add(new String(stringData));
@@ -61,6 +66,9 @@ public class MajorHeartbeat implements Event {
 
         dout.writeLong(numberOfChunks);
         dout.writeLong(freeSpace);
+
+        dout.writeInt(chunkServerString.getBytes().length);
+        dout.write(chunkServerString.getBytes());
 
         for (String chunk : chunksList) {
             byte[] bytes = chunk.getBytes();

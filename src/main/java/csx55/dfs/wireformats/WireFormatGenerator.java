@@ -75,6 +75,30 @@ public class WireFormatGenerator {
             case Protocol.FETCH_CHUNKS_RESPONSE:
                 return new FetchChunksListResponse(marshalledData);
 
+            case Protocol.REQUEST_CHUNK:
+                return new RequestChunk(marshalledData);
+
+            case Protocol.REQUEST_CHUNK_RESPONSE:
+                return new RequestChunkResponse(marshalledData);
+
+            case Protocol.ERROR_CORRECTION:
+                return new ErrorCorrection(marshalledData);
+
+            case Protocol.REPORT_CHUNK_CORRUPTION:
+                return new ReportChunkCorruption(marshalledData);
+
+            case Protocol.CHUNK_CORRECTION:
+                return new ChunkCorrection(marshalledData);
+
+            case Protocol.REPLICATE_NEW_SERVER:
+                return new ReplicateNewServer(marshalledData);
+
+            case Protocol.MIGRATE_CHUNK:
+                return new MigrateChunk(marshalledData);
+
+            case Protocol.MIGRATE_CHUNK_RESPONSE:
+                return new MigrationResponse(marshalledData);
+
             default:
                 System.out.println("Error: WireFormat could not be generated. " + type);
                 return null;

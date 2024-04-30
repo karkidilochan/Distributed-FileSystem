@@ -46,8 +46,9 @@ public class ChunkMessage implements Event {
         din.readFully(payloadData);
         this.chunk = payloadData;
 
-        this.replicas = new ArrayList<String>(2);
-        for (int i = 0; i < 2; i++) {
+        int size = din.readInt();
+        this.replicas = new ArrayList<String>(size);
+        for (int i = 0; i < size; i++) {
             len = din.readInt();
             data = new byte[len];
             din.readFully(data);
@@ -74,6 +75,7 @@ public class ChunkMessage implements Event {
         dout.writeInt(this.chunk.length);
         dout.write(this.chunk);
 
+        dout.writeInt(replicas.size());
         for (String server : replicas) {
             byte[] bytes = server.getBytes();
             dout.writeInt(bytes.length);

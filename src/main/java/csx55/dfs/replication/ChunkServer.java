@@ -1,5 +1,6 @@
 package csx55.dfs.replication;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -29,9 +30,12 @@ import csx55.dfs.wireformats.CreateReplica;
 import csx55.dfs.wireformats.CreateReplicaResponse;
 import csx55.dfs.wireformats.ErrorCorrection;
 import csx55.dfs.wireformats.Event;
+import csx55.dfs.wireformats.MigrateChunk;
+import csx55.dfs.wireformats.MigrationResponse;
 import csx55.dfs.wireformats.Protocol;
 import csx55.dfs.wireformats.Register;
 import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.wireformats.ReplicateNewServer;
 import csx55.dfs.wireformats.ReportChunkCorruption;
 import csx55.dfs.wireformats.RequestChunk;
 import csx55.dfs.wireformats.RequestChunkResponse;
@@ -177,7 +181,7 @@ public class ChunkServer implements Node, Protocol {
     }
 
     public void handleIncomingEvent(Event event, TCPConnection connection) {
-        // System.out.println("Received event: " + event.toString());
+        System.out.println("Received event: " + event.toString());
 
         switch (event.getType()) {
 
@@ -203,9 +207,23 @@ public class ChunkServer implements Node, Protocol {
 
             case Protocol.ERROR_CORRECTION:
                 handleErrorCorrection((ErrorCorrection) event);
+                break;
 
             case Protocol.CHUNK_CORRECTION:
                 handleChunkCorrection((ChunkCorrection) event);
+                break;
+
+            case Protocol.REPLICATE_NEW_SERVER:
+                handleReplication((ReplicateNewServer) event);
+                break;
+
+            case Protocol.MIGRATE_CHUNK:
+                handleChunkMigration((MigrateChunk) event, connection);
+                break;
+
+            case Protocol.MIGRATE_CHUNK_RESPONSE:
+                handleMigrationResponse((MigrationResponse) event);
+                break;
 
         }
     }
@@ -217,11 +235,11 @@ public class ChunkServer implements Node, Protocol {
         // int majorHeartbeatInterval = 120000;
 
         timerMajorHeartbeat.schedule(new HeartBeat(true, this.controllerConnection, this),
-                0, 15000);
+                0, 120000);
 
         /* minor heartbeat interval should be 15 seconds */
         timerMinorHeartbeat.schedule(new HeartBeat(false, controllerConnection, this), 0,
-                5000);
+                15000);
 
         System.out.println("Received registration response from the discovery: " + response.toString());
     }
@@ -254,6 +272,8 @@ public class ChunkServer implements Node, Protocol {
                 allChunksList.add(chunk.filePath);
                 newChunksList.add(chunk.filePath);
 
+                System.out.println(message.getReplicas());
+
                 /* now send the chunk to replicas */
                 sendChunkToReplica(message.getFilePath(), message.getSequence(), message.getChunk(),
                         message.getReplicas().get(0),
@@ -284,17 +304,18 @@ public class ChunkServer implements Node, Protocol {
 
     private void sendChunkToReplica(String filePath, int sequence, byte[] chunk, String targetReplica,
             String forwardReplica, boolean forward) {
-        String replicaB = targetReplica;
-        String replicaC = forwardReplica;
+
         try {
-            Socket socketToPeer = new Socket(replicaB.split(":")[0], Integer.valueOf(replicaB.split(":")[1]));
+            System.out.println(targetReplica);
+            System.out.println(forwardReplica);
+            Socket socketToPeer = new Socket(targetReplica.split(":")[0], Integer.valueOf(targetReplica.split(":")[1]));
             TCPConnection connection = new TCPConnection(this, socketToPeer);
 
             CreateReplica request;
 
             if (forward) {
                 request = new CreateReplica(filePath, sequence, chunk,
-                        forward, replicaC);
+                        forward, forwardReplica);
             } else {
                 request = new CreateReplica(filePath, sequence, chunk,
                         false, "None");
@@ -330,10 +351,11 @@ public class ChunkServer implements Node, Protocol {
                 newChunksList.add(chunk.filePath);
 
                 /* now send the chunk to replicas */
+                String targetReplica = message.getReplica();
                 if (message.checkForward()) {
                     sendChunkToReplica(message.getFilePath(), message.getSequence(), message.getChunk(),
-                            message.getReplica(),
-                            "None", message.checkForward());
+                            targetReplica,
+                            "None", false);
                 }
             } else {
                 status = Protocol.FAILURE;
@@ -370,7 +392,7 @@ public class ChunkServer implements Node, Protocol {
          */
         try {
             Chunk chunk = fileChunksMap.get(message.clusterPath).get(message.sequenceNumber - 1);
-            File file = new File(message.clusterPath);
+            File file = new File(message.chunkPath);
             byte[] chunkRead = Files.readAllBytes(file.toPath());
 
             /* now validate the chunk to see if any corruption exists */
@@ -390,10 +412,20 @@ public class ChunkServer implements Node, Protocol {
                 for (int index : indexes) {
                     System.out.println(index);
                 }
-                /* Report chunk corruption to controller */
-                ReportChunkCorruption report = new ReportChunkCorruption(fullAddress, chunk.filePath, false);
 
-                /* inform controller about corruption and client about failure to read */
+                String requestingClientIP = message.requestingClientIP;
+                int requestingClientPort = message.requestingClientPort;
+
+                System.out.println("requesting client: " + requestingClientIP + requestingClientPort);
+                /* Report chunk corruption to controller */
+                ReportChunkCorruption report = new ReportChunkCorruption(fullAddress, message.clusterPath,
+                        message.downloadPath, chunk.filePath, false, message.sequenceNumber, message.totalSize,
+                        requestingClientIP, requestingClientPort, indexes);
+
+                /*
+                 * inform only controller about corruption for correction
+                 * inform client to wait
+                 */
                 connection.getTCPSenderThread().sendData(report.getBytes());
                 controllerConnection.getTCPSenderThread().sendData(report.getBytes());
 
@@ -414,11 +446,28 @@ public class ChunkServer implements Node, Protocol {
             File file = new File(message.filePath);
             byte[] chunkRead = Files.readAllBytes(file.toPath());
 
-            ChunkCorrection response = new ChunkCorrection(message.filePath, chunkRead);
+            List<byte[]> chunkSlices = getSlices(chunkRead);
+            List<byte[]> correctSlices = new ArrayList<>();
 
-            // send "Register" message to the Registry
+            for (int index : message.corruptedSlices) {
+                correctSlices.add(chunkSlices.get(index));
+            }
+
+            ChunkCorrection response = new ChunkCorrection(message.filePath, message.corruptedSlices, correctSlices);
             connection.getTCPSenderThread().sendData(response.getBytes());
             connection.start();
+
+            /* now send the correct request response to requesting client */
+            RequestChunkResponse clientResponse = new RequestChunkResponse(message.downloadPath, message.sequenceNumber,
+                    chunkRead, message.totalSize);
+
+            System.out.println(message.requestingClientIP + " " + message.requestingClientPort);
+
+            Socket socketToClient = new Socket(message.requestingClientIP,
+                    message.requestingClientPort);
+            TCPConnection clientConnection = new TCPConnection(this, socketToClient);
+            clientConnection.getTCPSenderThread().sendData(clientResponse.getBytes());
+            clientConnection.start();
         } catch (Exception e) {
             System.out.println("Error occurred while sending chunk correction payload: " + e.getMessage());
             e.printStackTrace();
@@ -434,15 +483,42 @@ public class ChunkServer implements Node, Protocol {
         // Chunk chunk = fileChunksMap.get(message.filePath).get(message.sequenceNumber
         // - 1);
 
-        try (FileOutputStream fileOutputStream = new FileOutputStream(message.filePath)) {
-            fileOutputStream.write(message.chunk);
+        try {
+            byte[] corruptedChunk = Files.readAllBytes(Paths.get(message.filePath));
+            List<byte[]> corruptSlices = getSlices(corruptedChunk);
+
+            System.out.println(corruptedChunk);
+            System.out.println(corruptSlices);
+            System.out.println(message.corruptedSliceIndexes);
+            System.out.println(message.correctSlices);
+
+            for (int i = 0; i < message.corruptedSliceIndexes.size(); i++) {
+                corruptSlices.set(message.corruptedSliceIndexes.get(i), message.correctSlices.get(i));
+            }
+            /*
+             * now corrupt slice has been corrected
+             * so write it
+             */
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+            for (byte[] slice : corruptSlices) {
+                outputStream.write(slice);
+            }
+
+            byte[] correctedChunk = outputStream.toByteArray();
+            FileOutputStream fileOutputStream = new FileOutputStream(message.filePath);
+            fileOutputStream.write(correctedChunk);
+            fileOutputStream.close();
 
             /* now notify controller you are fine */
 
-            ReportChunkCorruption report = new ReportChunkCorruption(fullAddress, message.filePath, true);
+            ReportChunkCorruption report = new ReportChunkCorruption(fullAddress, "",
+                    "", message.filePath, true, 0, 0, "", 0, new ArrayList<>(0));
             controllerConnection.getTCPSenderThread().sendData(report.getBytes());
+
         } catch (IOException | InterruptedException e) {
-            System.err.println("Error overwriting chunk: " + e.getMessage());
+            System.err.println("Error overwriting chunk slices: " + e.getMessage());
+
         }
 
     }
@@ -459,6 +535,76 @@ public class ChunkServer implements Node, Protocol {
             System.out.println(e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    private void handleReplication(ReplicateNewServer message) {
+        /* take each chunk and send chunk migration message */
+        List<String> chunksList = message.chunksList;
+        try {
+
+            Socket socket = new Socket(message.targetIP, message.targetPort);
+            TCPConnection connection = new TCPConnection(this, socket);
+            connection.start();
+
+            for (String chunkPath : chunksList) {
+                File file = new File(chunkPath);
+                byte[] chunkRead = Files.readAllBytes(file.toPath());
+                String[] parts = chunkPath.replace(chunkPathPrefix, "").split("_chunk");
+                String baseFilename = parts[0]; // "demo.txt"
+                int sequenceNumber = Integer.valueOf(parts[1]);
+
+                MigrateChunk migrate = new MigrateChunk(sequenceNumber, chunkPath, chunkRead, baseFilename);
+                connection.getTCPSenderThread().sendData(migrate.getBytes());
+
+            }
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error occurred while migrating chunks " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void handleChunkMigration(MigrateChunk message, TCPConnection connection) {
+        /*
+         * receive the chunk bytes and write it
+         * also add the new chunks to new chunks list, which will be then sent to
+         * heartbeats
+         */
+        Chunk chunk = new Chunk(message.sequenceNumber);
+
+        chunk.createChecksumSlices(message.getChunk());
+
+        boolean isSuccessful = chunk.writeChunk(chunkPathPrefix, message.fileName, message.sequenceNumber,
+                message.getChunk());
+
+        byte status;
+        String response;
+        if (isSuccessful) {
+            status = Protocol.SUCCESS;
+            response = "Chunk migration was successful.";
+
+            fileChunksMap.computeIfAbsent(message.fileName, k -> new ArrayList<>()).add(chunk);
+            allChunksList.add(chunk.filePath);
+
+            newChunksList.add(chunk.filePath);
+
+        } else {
+            status = Protocol.FAILURE;
+            response = "Chunk migration failed.";
+        }
+        try {
+
+            MigrationResponse request = new MigrationResponse(status, response, message.sequenceNumber);
+            connection.getTCPSenderThread().sendData(request.getBytes());
+
+        } catch (Exception e) {
+            System.out.println("Error while handling chunk upload" + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    private void handleMigrationResponse(MigrationResponse message) {
+        System.out.println(message.toString());
     }
 
     public String getIPAddress() {
@@ -490,6 +636,26 @@ public class ChunkServer implements Node, Protocol {
         List<String> result = new ArrayList<>(newChunksList);
         newChunksList.clear();
         return result;
+    }
+
+    public List<byte[]> getSlices(byte[] chunk) {
+        List<byte[]> slices = new ArrayList<>();
+
+        int offset = 0;
+        int sliceSize = 8 * 1024; // 8KB
+        int length;
+
+        while (offset < chunk.length) {
+            /* keeping length of bytes to read either chunksize or remaining bytes left */
+            length = Math.min(sliceSize, chunk.length - offset);
+            byte[] slice = new byte[length];
+            System.arraycopy(chunk, offset, slice, 0, length);
+            slices.add(slice);
+
+            offset += length;
+        }
+
+        return slices;
     }
 
 }

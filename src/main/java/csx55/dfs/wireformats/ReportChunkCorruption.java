@@ -12,18 +12,31 @@ import java.util.List;
 
 public class ReportChunkCorruption implements Event {
     private int type;
+    public String clusterPath;
+    public String downloadPath;
     public String originChunkServer;
     public String chunkPath;
     public boolean isFixed;
-    // public List<Integer> corruptedSlices;
+    public int sequenceNumber;
+    public int totalSize;
+    public String requestingClientIP;
+    public int requestingClientPort;
+    public List<Integer> corruptedSlices;
 
-    public ReportChunkCorruption(String originChunkServer, String chunkPath,
-            boolean isFixed) {
+    public ReportChunkCorruption(String originChunkServer, String clusterPath, String downloadPath, String chunkPath,
+            boolean isFixed, int sequenceNumber, int totalSize, String requestingClient, int requestingClientPort,
+            List<Integer> corruptedSlices) {
         this.type = Protocol.REPORT_CHUNK_CORRUPTION;
+        this.clusterPath = clusterPath;
+        this.downloadPath = downloadPath;
         this.chunkPath = chunkPath;
         this.originChunkServer = originChunkServer;
         this.isFixed = isFixed;
-        // this.corruptedSlices = corruptedSlices;
+        this.sequenceNumber = sequenceNumber;
+        this.totalSize = totalSize;
+        this.requestingClientIP = requestingClient;
+        this.requestingClientPort = requestingClientPort;
+        this.corruptedSlices = corruptedSlices;
     }
 
     public ReportChunkCorruption(byte[] marshalledData) throws IOException {
@@ -36,6 +49,16 @@ public class ReportChunkCorruption implements Event {
         int len = din.readInt();
         byte[] data = new byte[len];
         din.readFully(data);
+        this.clusterPath = new String(data);
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
+        this.downloadPath = new String(data);
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
         this.chunkPath = new String(data);
 
         len = din.readInt();
@@ -45,12 +68,22 @@ public class ReportChunkCorruption implements Event {
 
         this.isFixed = din.readBoolean();
 
-        // len = din.readInt();
-        // this.corruptedSlices = new ArrayList<>(len);
-        // for (int i = 0; i < len; i++) {
-        // int index = din.readInt();
-        // corruptedSlices.add(index);
-        // }
+        this.sequenceNumber = din.readInt();
+        this.totalSize = din.readInt();
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
+        this.requestingClientIP = new String(data);
+
+        this.requestingClientPort = din.readInt();
+
+        len = din.readInt();
+        this.corruptedSlices = new ArrayList<>(len);
+        for (int i = 0; i < len; i++) {
+            int index = din.readInt();
+            this.corruptedSlices.add(index);
+        }
 
         inputData.close();
         din.close();
@@ -64,6 +97,12 @@ public class ReportChunkCorruption implements Event {
 
         dout.writeInt(type);
 
+        dout.writeInt(clusterPath.getBytes().length);
+        dout.write(clusterPath.getBytes());
+
+        dout.writeInt(downloadPath.getBytes().length);
+        dout.write(downloadPath.getBytes());
+
         dout.writeInt(chunkPath.getBytes().length);
         dout.write(chunkPath.getBytes());
 
@@ -72,10 +111,18 @@ public class ReportChunkCorruption implements Event {
 
         dout.writeBoolean(isFixed);
 
-        // dout.writeInt(corruptedSlices.size());
-        // for (int slice : corruptedSlices) {
-        // dout.writeInt(slice);
-        // }
+        dout.writeInt(sequenceNumber);
+        dout.writeInt(totalSize);
+
+        dout.writeInt(requestingClientIP.getBytes().length);
+        dout.write(requestingClientIP.getBytes());
+
+        dout.writeInt(requestingClientPort);
+
+        dout.writeInt(corruptedSlices.size());
+        for (int slice : corruptedSlices) {
+            dout.writeInt(slice);
+        }
 
         dout.flush();
         marshalledData = outputStream.toByteArray();

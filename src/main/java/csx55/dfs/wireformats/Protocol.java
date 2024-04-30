@@ -27,6 +27,9 @@ public interface Protocol {
     final int REPORT_CHUNK_CORRUPTION = 17;
     final int ERROR_CORRECTION = 18;
     final int CHUNK_CORRECTION = 19;
+    final int REPLICATE_NEW_SERVER = 20;
+    final int MIGRATE_CHUNK = 21;
+    final int MIGRATE_CHUNK_RESPONSE = 22;
 
     final byte SUCCESS = (byte) 200;
     final byte FAILURE = (byte) 500;

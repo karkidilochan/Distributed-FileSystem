@@ -22,7 +22,7 @@ public class Chunk implements Serializable {
     public String lastModified;
     /* this is the path of the chunk with sequence number */
     public String filePath;
-    public List<String> sliceHashes;
+    public List<String> sliceHashes = new ArrayList<>();
     // public boolean isCorrupted;
 
     public Chunk(int sequenceNumber) {
@@ -106,6 +106,11 @@ public class Chunk implements Serializable {
         // int originalSize = sliceHashes.size();
         List<Integer> corruptedSliceIndexes = new ArrayList<>();
         int sliceIndex = 0;
+
+        /*
+         * TODO: corrupted slice isnt correct
+         * fix:low priority
+         */
         while (offset < corruptedChunk.length) {
             /* keeping length of bytes to read either chunksize or remaining bytes left */
             length = Math.min(sliceSize, corruptedChunk.length - offset);
@@ -113,8 +118,12 @@ public class Chunk implements Serializable {
             System.arraycopy(corruptedChunk, offset, slice, 0, length);
 
             /* also create the checksum for this slice and add it to hashes list */
+
             String sliceDigest = getDigest(slice);
-            if (sliceDigest != sliceHashes.get(sliceIndex)) {
+            System.out.println(sliceDigest);
+            System.out.println(sliceHashes.get(sliceIndex));
+
+            if (!sliceDigest.equals(sliceHashes.get(sliceIndex))) {
                 corruptedSliceIndexes.add(sliceIndex);
             }
 
