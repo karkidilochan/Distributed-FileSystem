@@ -487,64 +487,69 @@ public class Controller implements Node {
          * then instruct this replica to send a copy of that chunk to this new chunk
          * server
          */
-        ChunkServerMetadata failedMetadata = chunkServersMetadata.get(failedChunkServer);
-        failedMetadata.isAlive = false;
-        /* chunkserver:affectedChunk */
-        Map<ChunkServerMetadata, List<String>> affectedChunksReplicaMap = new HashMap<>();
-        ChunkServerMetadata bestCandidate = new ChunkServerMetadata();
-        for (Map.Entry<String, List<ChunkServerMetadata>> entry : chunkAndServerMap.entrySet()) {
-            List<ChunkServerMetadata> replicasList = entry.getValue();
-            if (replicasList.contains(failedMetadata)) {
-                List<ChunkServerMetadata> candidateServers = chunkServersMetadata.values().stream()
-                        .filter(metadata -> !replicasList.contains(metadata))
-                        .collect(Collectors.toList());
+        try {
+            ChunkServerMetadata failedMetadata = chunkServersMetadata.get(failedChunkServer);
+            failedMetadata.isAlive = false;
+            /* chunkserver:affectedChunk */
+            Map<ChunkServerMetadata, List<String>> affectedChunksReplicaMap = new HashMap<>();
+            ChunkServerMetadata bestCandidate = new ChunkServerMetadata();
+            for (Map.Entry<String, List<ChunkServerMetadata>> entry : chunkAndServerMap.entrySet()) {
+                List<ChunkServerMetadata> replicasList = entry.getValue();
+                if (replicasList.contains(failedMetadata)) {
+                    List<ChunkServerMetadata> candidateServers = chunkServersMetadata.values().stream()
+                            .filter(metadata -> !replicasList.contains(metadata))
+                            .collect(Collectors.toList());
 
-                replicasList.remove(failedMetadata);
-                chunkServersMetadata.remove(failedChunkServer);
-                lastHeartbeatTimestamps.remove(failedChunkServer);
+                    replicasList.remove(failedMetadata);
+                    chunkServersMetadata.remove(failedChunkServer);
+                    lastHeartbeatTimestamps.remove(failedChunkServer);
 
-                candidateServers.sort((m1, m2) -> Long.compare(m2.getFreeSpace(), m1.getFreeSpace()));
+                    candidateServers.sort((m1, m2) -> Long.compare(m2.getFreeSpace(), m1.getFreeSpace()));
 
-                bestCandidate = candidateServers.get(0);
+                    bestCandidate = candidateServers.get(0);
 
-                affectedChunksReplicaMap.computeIfAbsent(replicasList.get(0), k -> new ArrayList<>())
-                        .add(entry.getKey());
+                    affectedChunksReplicaMap.computeIfAbsent(replicasList.get(0), k -> new ArrayList<>())
+                            .add(entry.getKey());
 
-                /* remove failed server from all data structures */
+                    /* remove failed server from all data structures */
 
-            }
-
-        }
-        System.out.println(affectedChunksReplicaMap);
-        System.out.println(bestCandidate.getFullAddress());
-
-        /*
-         * now for affectedChunksReplicaMap entries, in a loop
-         * send ReplicateNewServer to the replica server, payload contains best
-         * candidate
-         * replica server will send the chunk to best candidate
-         * best candidate saves it, send the newchunkslist in minor heartbeat, ->
-         * updated in controller
-         */
-        for (Map.Entry<ChunkServerMetadata, List<String>> entry : affectedChunksReplicaMap.entrySet()) {
-            ChunkServerMetadata replicaServer = entry.getKey();
-            System.out.println("Sending to: " + replicaServer.getFullAddress());
-            List<String> chunksList = entry.getValue();
-            ReplicateNewServer response = new ReplicateNewServer(bestCandidate.ipAddress, bestCandidate.port,
-                    chunksList);
-
-            try {
-
-                replicaServer.connection.getTCPSenderThread().sendData(response.getBytes());
-            } catch (Exception e) {
-                System.out.println("Error occurred while sending replicate server message to "
-                        + replicaServer.getFullAddress() + ": " + e.getMessage());
-                e.printStackTrace();
+                }
 
             }
+            System.out.println(affectedChunksReplicaMap);
+            System.out.println(bestCandidate.getFullAddress());
 
+            /*
+             * now for affectedChunksReplicaMap entries, in a loop
+             * send ReplicateNewServer to the replica server, payload contains best
+             * candidate
+             * replica server will send the chunk to best candidate
+             * best candidate saves it, send the newchunkslist in minor heartbeat, ->
+             * updated in controller
+             */
+            for (Map.Entry<ChunkServerMetadata, List<String>> entry : affectedChunksReplicaMap.entrySet()) {
+                ChunkServerMetadata replicaServer = entry.getKey();
+                System.out.println("Sending to: " + replicaServer.getFullAddress());
+                List<String> chunksList = entry.getValue();
+                ReplicateNewServer response = new ReplicateNewServer(bestCandidate.ipAddress, bestCandidate.port,
+                        chunksList);
+
+                try {
+
+                    replicaServer.connection.getTCPSenderThread().sendData(response.getBytes());
+                } catch (Exception e) {
+                    System.out.println("Error occurred while sending replicate server message to "
+                            + replicaServer.getFullAddress() + ": " + e.getMessage());
+                    e.printStackTrace();
+
+                }
+
+            }
+            System.out.println("sent replication requests");
+        } catch (Exception e) {
+            System.out.println("Error occurred while handling failure of chunk server and migrating affected chunks"
+                    + e.getMessage());
         }
-        System.out.println("sent replication requests");
 
     }
 
