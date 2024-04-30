@@ -8,6 +8,8 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -27,6 +29,7 @@ import csx55.dfs.wireformats.FetchChunksListResponse;
 import csx55.dfs.wireformats.Protocol;
 import csx55.dfs.wireformats.Register;
 import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.wireformats.ReportChunkCorruption;
 import csx55.dfs.wireformats.RequestChunk;
 import csx55.dfs.wireformats.RequestChunkResponse;
 
@@ -49,11 +52,12 @@ public class Client implements Node, Protocol {
     private final String hostIP;
     private final String fullAddress;
 
-    // Constants for command strings
-    private ConcurrentHashMap<String, List<byte[]>> fileChunksMap;
+    /* fileName and chunks map */
+    private ConcurrentHashMap<String, List<byte[]>> fileChunksMap = new ConcurrentHashMap<>();
 
-    // create a TCP connection with the Registry
     private TCPConnection controllerConnection;
+
+    private final String DATA_DIRECTORY = System.getProperty("user.home") + "/Documents/cs555/distributed-fs/data/";
 
     private Client(String hostName, String hostIP, int nodePort) {
         this.hostName = hostName;
@@ -66,7 +70,7 @@ public class Client implements Node, Protocol {
         if (args.length < 2) {
             printUsageAndExit();
         }
-        System.out.println("Chunk server is live at: " + new Date());
+        System.out.println("Client is live at: " + new Date());
         try (ServerSocket serverSocket = new ServerSocket(0)) {
             // assign a random available port
             int nodePort = serverSocket.getLocalPort();
@@ -142,6 +146,7 @@ public class Client implements Node, Protocol {
 
                     case "download":
                         fetchChunksList(input[1], input[2]);
+                        break;
 
                     case "exit":
                         // TODO:
@@ -164,7 +169,7 @@ public class Client implements Node, Protocol {
     }
 
     public void handleIncomingEvent(Event event, TCPConnection connection) {
-        // System.out.println("Received event: " + event.toString());
+        System.out.println("Received event: " + event.toString());
 
         switch (event.getType()) {
 
@@ -174,15 +179,22 @@ public class Client implements Node, Protocol {
 
             case Protocol.CHUNK_SERVER_LIST:
                 handleFileUpload((ChunkServerList) event);
+                break;
 
             case Protocol.CHUNK_TRANSFER_RESPONSE:
                 handleChunkTransferResponse((ChunkMessageResponse) event, connection);
+                break;
 
             case Protocol.FETCH_CHUNKS_RESPONSE:
                 handleFetchChunksResponse((FetchChunksListResponse) event);
+                break;
 
             case Protocol.REQUEST_CHUNK_RESPONSE:
                 handleRequestChunkResponse((RequestChunkResponse) event, connection);
+                break;
+
+            case Protocol.REPORT_CHUNK_CORRUPTION:
+                handleChunkCorruption((ReportChunkCorruption) event);
 
         }
     }
@@ -195,7 +207,13 @@ public class Client implements Node, Protocol {
         /*
          * while exiting, send all the files you were responsible for to your successor
          */
-
+        try {
+            // controllerConnection.getTCPSenderThread().sendData(register.getBytes());
+            controllerConnection.close();
+        } catch (IOException | InterruptedException e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     public String getIPAddress() {
@@ -221,37 +239,13 @@ public class Client implements Node, Protocol {
          * it,
          * also pick two chunkservers and send it for replica
          */
-        /*
-         * split file into 64KB chunks
-         * each chunk should keep checksum
-         * checksum should be for 8KB slices of chunk -> done by chunk server ?
-         */
-
-        /*
-         * first fetch a list of 3 chunk servers from controller
-         * read file contents
-         * split it into chunks
-         * 
-         */
-
-        /*
-         * TODO: fetch chunk server for every chunk
-         * right now getting a list of chunks in one ping
-         * 
-         * possible solution:
-         * read the file, create chunks
-         * add it to a concurrenthashmap file: chunks[]
-         * use sequence number to identify each chunk
-         * so for this, create a loop to send bunch of requests to controller containing
-         * the sequence number as well
-         * take the sequence no from this response, read that part from chunks array and
-         * send it to that chunk server
-         */
 
         try {
 
             List<byte[]> chunks = getChunks(sourcePath);
             fileChunksMap.put(destinationPath, chunks);
+
+            System.out.println(chunks.size());
 
             for (int i = 1; i < chunks.size() + 1; i++) {
                 controllerConnection.getTCPSenderThread()
@@ -287,8 +281,15 @@ public class Client implements Node, Protocol {
             /* pick any two chunkservers excluding this one */
 
             List<String> replicas = new ArrayList<>();
+
             replicas.add(chunkServers.get(1));
             replicas.add(chunkServers.get(2));
+
+            // for (String server : chunkServers) {
+            // if (!server.equals(chunkServer)) {
+            // replicas.add(server);
+            // }
+            // }
 
             ChunkMessage transfer = new ChunkMessage(message.getDestinationPath(), sequenceNumber, chunk,
                     replicas);
@@ -306,7 +307,7 @@ public class Client implements Node, Protocol {
 
             }
 
-        } catch (Exception e) {
+        } catch (IOException | InterruptedException e) {
             System.out.println("Error sending chunks to chunkserver" + e.getMessage());
             e.printStackTrace();
         }
@@ -314,8 +315,11 @@ public class Client implements Node, Protocol {
     }
 
     private List<byte[]> getChunks(String filePath) throws IOException {
-        File file = new File(filePath);
-        byte[] fileData = Files.readAllBytes(file.toPath());
+
+        System.out.println(this.DATA_DIRECTORY);
+
+        Path totalPath = Paths.get(this.DATA_DIRECTORY, filePath);
+        byte[] fileData = Files.readAllBytes(totalPath);
 
         List<byte[]> chunks = new ArrayList<>();
         int offset = 0;
@@ -362,17 +366,21 @@ public class Client implements Node, Protocol {
     }
 
     private void handleFetchChunksResponse(FetchChunksListResponse message) {
+        System.out.println(message.numberOfChunks);
+        System.out.println(message.chunksList);
+        System.out.println(message.chunkServerList);
         for (int i = 0; i < message.numberOfChunks; i++) {
             try {
-                RequestChunk request = new RequestChunk(message.downloadPath,
-                        message.chunksList.get(i), i + 1, message.numberOfChunks);
+                RequestChunk request = new RequestChunk(message.clusterPath, message.downloadPath,
+                        message.chunksList.get(i), i + 1, message.numberOfChunks, this.hostIP, this.nodePort);
 
                 String chunkServer = message.chunkServerList.get(i);
 
                 Socket socket = new Socket(chunkServer.split(":")[0], Integer.valueOf(chunkServer.split(":")[1]));
                 TCPConnection connection = new TCPConnection(this, socket);
 
-                // send "Register" message to the Registry
+                System.out.println("Sending chunk request: " + request.getBytes());
+
                 connection.getTCPSenderThread().sendData(request.getBytes());
                 connection.start();
             } catch (IOException | InterruptedException e) {
@@ -385,13 +393,22 @@ public class Client implements Node, Protocol {
 
     private void handleRequestChunkResponse(RequestChunkResponse message, TCPConnection connection) {
         try {
-            fileChunksMap.computeIfAbsent(message.getFilePath(), k -> new ArrayList<>(message.getTotalSize()));
-            fileChunksMap.get(message.getFilePath()).add(message.getSequence() - 1, message.getChunk());
+            int numberOfChunks = message.getTotalSize();
+            String downloadPath = message.getFilePath();
+            fileChunksMap.computeIfAbsent(downloadPath, k -> new ArrayList<>(numberOfChunks));
 
+            System.out.println(fileChunksMap);
+
+            fileChunksMap.get(downloadPath).add(message.getSequence() - 1, message.getChunk());
+
+            System.out.println(fileChunksMap);
             connection.close();
 
-            if (fileChunksMap.get(message.getFilePath()).size() == message.getTotalSize()) {
-                writeFile(message.getFilePath(), fileChunksMap.get(message.getFilePath()));
+            System.out.println(fileChunksMap.get(downloadPath).size());
+
+            if (fileChunksMap.get(downloadPath).size() == numberOfChunks) {
+                writeFile(downloadPath, fileChunksMap.get(downloadPath));
+                fileChunksMap.remove(downloadPath);
             }
 
         } catch (Exception e) {
@@ -402,19 +419,35 @@ public class Client implements Node, Protocol {
 
     private void writeFile(String downloadPath, List<byte[]> chunksList) {
         try {
+
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+
+            System.out.println("Starting to write file from chunks" + downloadPath);
 
             for (byte[] chunk : chunksList) {
                 byteArrayOutputStream.write(chunk);
             }
 
-            FileOutputStream fileOutputStream = new FileOutputStream(downloadPath);
-            fileOutputStream.write(byteArrayOutputStream.toByteArray());
-            fileOutputStream.close();
+            byte[] fileBytes = byteArrayOutputStream.toByteArray();
+
+            Path filePath = Paths.get(this.DATA_DIRECTORY, downloadPath);
+            if (!Files.exists(filePath)) {
+                // Create a new file
+                System.out.println("Creating file: " + filePath);
+                Files.createFile(filePath);
+            }
+            Files.write(filePath, fileBytes);
+            System.out.println("Successfully wrote chunk: " + downloadPath);
+
         } catch (Exception e) {
             System.out.println("Error while writing file from chunks: " + e.getMessage());
             e.printStackTrace();
         }
+
+    }
+
+    private void handleChunkCorruption(ReportChunkCorruption message) {
+        System.out.println("Detected requested chunk corruption. Waiting for correct chunk from another replica....");
 
     }
 

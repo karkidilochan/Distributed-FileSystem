@@ -16,13 +16,19 @@ public class RequestChunk implements Event {
     public String chunkPath;
     public int sequenceNumber;
     public int totalSize;
+    public String requestingClientIP;
+    public int requestingClientPort;
 
-    public RequestChunk(String downloadPath, String chunkPath, int sequenceNumber, int totalSize) {
+    public RequestChunk(String clusterPath, String downloadPath, String chunkPath, int sequenceNumber, int totalSize,
+            String requestingClientIP, int requestingClientPort) {
         this.type = Protocol.REQUEST_CHUNK;
+        this.clusterPath = clusterPath;
         this.downloadPath = downloadPath;
         this.chunkPath = chunkPath;
         this.sequenceNumber = sequenceNumber;
         this.totalSize = totalSize;
+        this.requestingClientIP = requestingClientIP;
+        this.requestingClientPort = requestingClientPort;
     }
 
     public RequestChunk(byte[] marshalledData) throws IOException {
@@ -38,12 +44,24 @@ public class RequestChunk implements Event {
         int len = din.readInt();
         byte[] data = new byte[len];
         din.readFully(data);
+        this.clusterPath = new String(data);
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
         this.downloadPath = new String(data);
 
         len = din.readInt();
         data = new byte[len];
         din.readFully(data);
         this.chunkPath = new String(data);
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
+        this.requestingClientIP = new String(data);
+
+        this.requestingClientPort = din.readInt();
 
         inputData.close();
         din.close();
@@ -60,11 +78,19 @@ public class RequestChunk implements Event {
         dout.writeInt(sequenceNumber);
         dout.writeInt(totalSize);
 
+        dout.writeInt(clusterPath.getBytes().length);
+        dout.write(clusterPath.getBytes());
+
         dout.writeInt(downloadPath.getBytes().length);
         dout.write(downloadPath.getBytes());
 
         dout.writeInt(chunkPath.getBytes().length);
         dout.write(chunkPath.getBytes());
+
+        dout.writeInt(requestingClientIP.getBytes().length);
+        dout.write(requestingClientIP.getBytes());
+
+        dout.writeInt(requestingClientPort);
 
         dout.flush();
         marshalledData = outputStream.toByteArray();

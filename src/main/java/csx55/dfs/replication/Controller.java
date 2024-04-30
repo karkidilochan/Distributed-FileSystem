@@ -2,6 +2,7 @@ package csx55.dfs.replication;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -11,6 +12,9 @@ import java.util.Scanner;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import csx55.dfs.tcp.TCPConnection;
@@ -23,6 +27,7 @@ import csx55.dfs.wireformats.FetchChunksListResponse;
 import csx55.dfs.wireformats.Protocol;
 import csx55.dfs.wireformats.Register;
 import csx55.dfs.wireformats.RegisterResponse;
+import csx55.dfs.wireformats.ReplicateNewServer;
 import csx55.dfs.wireformats.ReportChunkCorruption;
 import csx55.dfs.wireformats.ChunkServerList;
 import csx55.dfs.wireformats.ErrorCorrection;
@@ -102,6 +107,8 @@ public class Controller implements Node {
     }
 
     public void handleIncomingEvent(Event event, TCPConnection connection) {
+        // System.out.println("Received event: " + event.toString());
+
         switch (event.getType()) {
             case Protocol.CLIENT_REGISTER_REQUEST:
                 handleClientRegistration((Register) event, connection);
@@ -133,6 +140,7 @@ public class Controller implements Node {
 
             case Protocol.REPORT_CHUNK_CORRUPTION:
                 handleChunkCorruption((ReportChunkCorruption) event);
+                break;
 
         }
     }
@@ -187,6 +195,8 @@ public class Controller implements Node {
             /* validate peer id */
             ChunkServerMetadata metadata = new ChunkServerMetadata(ipAddress, registerEvent.getHostPort(), connection);
             chunkServersMetadata.put(nodes, metadata);
+
+            lastHeartbeatTimestamps.put(nodes, System.currentTimeMillis());
 
             message = "Registration request successful.  The number of chunk servers currently is ("
                     + chunkServersMetadata.size() + ").\n";
@@ -254,35 +264,44 @@ public class Controller implements Node {
     }
 
     private synchronized void handleMajorHeartbeat(MajorHeartbeat message) {
-        System.out.println("received major heartbeat");
-        ChunkServerMetadata metadata = chunkServersMetadata.get(message.chunkServerString);
-        metadata.updateFreeSpace(message.freeSpace);
-        metadata.updateChunksCount(message.numberOfChunks);
-        metadata.updateChunksList(message.chunksList);
 
-        /* now for each obtained all chunk update the chunk and server map */
-        for (String chunkPath : message.chunksList) {
-            if (chunkAndServerMap.containsKey(chunkPath)) {
-                List<ChunkServerMetadata> metadataList = chunkAndServerMap.get(chunkPath);
-                if (!metadataList.contains(metadata)) {
-                    metadataList.add(metadata);
+        try {
+
+            lastHeartbeatTimestamps.put(message.chunkServerString, System.currentTimeMillis());
+
+            ChunkServerMetadata metadata = chunkServersMetadata.get(message.chunkServerString);
+            metadata.updateFreeSpace(message.freeSpace);
+            metadata.updateChunksCount(message.numberOfChunks);
+            metadata.updateChunksList(message.chunksList);
+
+            /* now for each obtained all chunk update the chunk and server map */
+            for (String chunkPath : message.chunksList) {
+                if (chunkAndServerMap.containsKey(chunkPath)) {
+                    List<ChunkServerMetadata> metadataList = chunkAndServerMap.get(chunkPath);
+                    if (!metadataList.contains(metadata)) {
+                        metadataList.add(metadata);
+                    }
+                } else {
+                    List<ChunkServerMetadata> list = new ArrayList<>();
+                    list.add(metadata);
+                    chunkAndServerMap.put(chunkPath, list);
                 }
-            } else {
-                List<ChunkServerMetadata> list = new ArrayList<>();
-                list.add(metadata);
-                chunkAndServerMap.put(chunkPath, list);
+
             }
 
+            // send metadata of all chunks
+            // plus, total no of chunks, free space available(1GB - space used so far)
+        } catch (Exception e) {
+            System.out.println("Error occurred while handling major heartbeat: " + e.getMessage());
+            e.printStackTrace();
         }
 
-        // send metadata of all chunks
-        // plus, total no of chunks, free space available(1GB - space used so far)
     }
 
     private synchronized void handleMinorHeartbeat(MinorHeartbeat message) {
-        System.out.println("received minor heartbeat");
         // send metadata info of newly added chunks
         // report file corruption if detected in this heart beat
+        lastHeartbeatTimestamps.put(message.chunkServerString, System.currentTimeMillis());
 
         ChunkServerMetadata metadata = chunkServersMetadata.get(message.chunkServerString);
         metadata.updateFreeSpace(message.freeSpace);
@@ -296,32 +315,33 @@ public class Controller implements Node {
         }
 
         if (!startedMonitoring) {
+            System.out.println("Started monitoring hearbeat");
             startHeartBeatMonitoring();
+            startedMonitoring = true;
 
         }
 
     }
 
     private void sendChunkServers(FetchChunkServers request, TCPConnection connection) {
-        /*
-         * TODO: get all the chunkservers that have free space at least the size of the
-         * file
-         */
+
         List<String> fileChunkServers = new ArrayList<>();
 
-        /*
-         * TODO: get 3 free chunk servers
-         * this is for testing only
-         */
         List<Map.Entry<String, ChunkServerMetadata>> sortedServers = new ArrayList<>(chunkServersMetadata.entrySet());
         Collections.sort(sortedServers,
                 (a, b) -> Long.compare(b.getValue().getFreeSpace(), a.getValue().getFreeSpace()));
         List<Map.Entry<String, ChunkServerMetadata>> topThreeServers = sortedServers.subList(0,
                 Math.min(3, sortedServers.size()));
 
+        System.out.println("sortedServers " + sortedServers);
+        System.out.println(topThreeServers);
+
         for (Map.Entry<String, ChunkServerMetadata> entry : topThreeServers) {
             fileChunkServers.add(entry.getKey());
+
         }
+
+        System.out.println("fileChunkServers: " + fileChunkServers);
 
         try {
             ChunkServerList message = new ChunkServerList(fileChunkServers,
@@ -333,6 +353,8 @@ public class Controller implements Node {
             e.printStackTrace();
         }
 
+        System.out.println("sent chunk servers list to client");
+
     }
 
     private void sendChunks(FetchChunksList message, TCPConnection connection) {
@@ -341,28 +363,48 @@ public class Controller implements Node {
              * from the chunkAndServerMap, get all the chunks that contain the clusterPath
              * substring
              */
+            /*
+             * {/tmp/chunk-server/demo.txt_chunk1=[csx55.dfs.replication.ChunkServerMetadata
+             * 
+             * @7989edb3, csx55.dfs.replication.ChunkServerMetadata@7989edb3,
+             * csx55.dfs.replication.ChunkServerMetadata@7989edb3]}
+             * demo.txt
+             * [/tmp/chunk-server/demo.txt_chunk1]
+             * {/tmp/chunk-server/demo.txt_chunk1=false}
+             * [129.82.44.157:41555]
+             */
+
+            System.out.println(chunkAndServerMap);
+
             List<String> keysContainingClusterPath = chunkAndServerMap.keySet().stream()
                     .filter(key -> key.contains(message.clusterPath))
                     .collect(Collectors.toList());
 
+            System.out.println(message.clusterPath);
+            System.out.println(keysContainingClusterPath);
+
             List<String> validChunkServers = new ArrayList<>();
 
             for (String chunk : keysContainingClusterPath) {
-                String targetServer = getValidChunkServer(chunkAndServerMap.get(chunk), message.clusterPath);
+                String targetServer = getValidChunkServer(chunkAndServerMap.get(chunk), chunk);
                 validChunkServers.add(targetServer);
             }
+
+            System.out.println(validChunkServers);
 
             FetchChunksListResponse response = new FetchChunksListResponse(keysContainingClusterPath.size(),
                     keysContainingClusterPath, validChunkServers, message.clusterPath, message.downloadPath);
             connection.getTCPSenderThread().sendData(response.getBytes());
         } catch (Exception e) {
-            System.out.println("Error while sending fetch chunks list request: " + e.getMessage());
+            System.out.println("Error while responding to fetch chunks list request: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     private String getValidChunkServer(List<ChunkServerMetadata> servers, String chunkFile) throws Exception {
+
         for (ChunkServerMetadata server : servers) {
+            System.out.println(server.fileChunksList);
             boolean checkIfFileInvalid = server.fileChunksList.get(chunkFile);
             if (server.isAlive && !checkIfFileInvalid) {
                 return server.getFullAddress();
@@ -388,9 +430,14 @@ public class Controller implements Node {
                 /* boolean for invalidity */
                 server.fileChunksList.put(message.chunkPath, true);
                 String validServer = getValidChunkServer(chunkAndServerMap.get(message.chunkPath), message.chunkPath);
+
+                System.out.println(validServer);
+                System.out.println(server.ipAddress + server.port);
                 ErrorCorrection payload = new ErrorCorrection(message.chunkPath,
-                        message.originChunkServer.split(":")[0],
-                        Integer.valueOf(message.originChunkServer.split(":")[1]));
+                        server.ipAddress,
+                        server.port, message.clusterPath, message.downloadPath, message.sequenceNumber,
+                        message.totalSize, message.requestingClientIP, message.requestingClientPort,
+                        message.corruptedSlices);
                 TCPConnection connection = chunkServersMetadata.get(validServer).getConnection();
                 connection.getTCPSenderThread().sendData(payload.getBytes());
             }
@@ -403,20 +450,27 @@ public class Controller implements Node {
     }
 
     public void startHeartBeatMonitoring() {
-        Timer timer = new Timer();
-        timer.scheduleAtFixedRate(new TimerTask() {
-            public void run() {
-                checkHeartbeat();
-            }
-        }, 0, 20 * 1000);
+        // Timer timer = new Timer();
+        System.out.println("Started Timer");
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+
+        executor.scheduleAtFixedRate(this::checkHeartbeat, 0, 20, TimeUnit.SECONDS);
+
+        // timer.scheduleAtFixedRate(new TimerTask() {
+        // public void run() {
+        // checkHeartbeat();
+        // }
+        // }, 0, 20 * 1000);
     }
 
     private void checkHeartbeat() {
+
         long currentTimestamp = System.currentTimeMillis();
         for (Map.Entry<String, Long> entry : lastHeartbeatTimestamps.entrySet()) {
             String serverId = entry.getKey();
             long lastHeartbeatTime = entry.getValue();
             if (currentTimestamp - lastHeartbeatTime > 20 * 1000) {
+                System.out.println("Detected failure of chunkserver: " + serverId);
                 handleFailure(serverId);
             }
         }
@@ -435,8 +489,9 @@ public class Controller implements Node {
          */
         ChunkServerMetadata failedMetadata = chunkServersMetadata.get(failedChunkServer);
         failedMetadata.isAlive = false;
-        Map<String, String> affectedChunksReplicaMap = new HashMap<>();
-        ChunkServerMetadata bestCandidate;
+        /* chunkserver:affectedChunk */
+        Map<ChunkServerMetadata, List<String>> affectedChunksReplicaMap = new HashMap<>();
+        ChunkServerMetadata bestCandidate = new ChunkServerMetadata();
         for (Map.Entry<String, List<ChunkServerMetadata>> entry : chunkAndServerMap.entrySet()) {
             List<ChunkServerMetadata> replicasList = entry.getValue();
             if (replicasList.contains(failedMetadata)) {
@@ -444,19 +499,24 @@ public class Controller implements Node {
                         .filter(metadata -> !replicasList.contains(metadata))
                         .collect(Collectors.toList());
 
+                replicasList.remove(failedMetadata);
+                chunkServersMetadata.remove(failedChunkServer);
+                lastHeartbeatTimestamps.remove(failedChunkServer);
+
                 candidateServers.sort((m1, m2) -> Long.compare(m2.getFreeSpace(), m1.getFreeSpace()));
 
                 bestCandidate = candidateServers.get(0);
 
-                replicasList.remove(failedMetadata);
-                chunkServersMetadata.remove(failedChunkServer);
+                affectedChunksReplicaMap.computeIfAbsent(replicasList.get(0), k -> new ArrayList<>())
+                        .add(entry.getKey());
 
-                affectedChunksReplicaMap.put(entry.getKey(), replicasList.get(0).getFullAddress());
+                /* remove failed server from all data structures */
 
-                break;
             }
 
         }
+        System.out.println(affectedChunksReplicaMap);
+        System.out.println(bestCandidate.getFullAddress());
 
         /*
          * now for affectedChunksReplicaMap entries, in a loop
@@ -466,6 +526,25 @@ public class Controller implements Node {
          * best candidate saves it, send the newchunkslist in minor heartbeat, ->
          * updated in controller
          */
+        for (Map.Entry<ChunkServerMetadata, List<String>> entry : affectedChunksReplicaMap.entrySet()) {
+            ChunkServerMetadata replicaServer = entry.getKey();
+            System.out.println("Sending to: " + replicaServer.getFullAddress());
+            List<String> chunksList = entry.getValue();
+            ReplicateNewServer response = new ReplicateNewServer(bestCandidate.ipAddress, bestCandidate.port,
+                    chunksList);
+
+            try {
+
+                replicaServer.connection.getTCPSenderThread().sendData(response.getBytes());
+            } catch (Exception e) {
+                System.out.println("Error occurred while sending replicate server message to "
+                        + replicaServer.getFullAddress() + ": " + e.getMessage());
+                e.printStackTrace();
+
+            }
+
+        }
+        System.out.println("sent replication requests");
 
     }
 

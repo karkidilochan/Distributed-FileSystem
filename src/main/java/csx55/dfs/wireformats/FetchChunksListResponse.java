@@ -24,6 +24,7 @@ public class FetchChunksListResponse implements Event {
             String clusterPath,
             String downloadPath) {
         this.type = Protocol.FETCH_CHUNKS_RESPONSE;
+        this.numberOfChunks = numberOfChunks;
         this.chunksList = chunksList;
         this.chunkServerList = chunkServerList;
         this.clusterPath = clusterPath;

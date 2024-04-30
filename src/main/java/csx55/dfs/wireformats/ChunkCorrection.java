@@ -16,13 +16,14 @@ public class ChunkCorrection implements Event {
     private int type;
     public String ipAddress;
     public int port;
-    public byte[] chunk;
+    public List<Integer> corruptedSliceIndexes;
+    public List<byte[]> correctSlices;
 
-    public ChunkCorrection(String filePath, byte[] chunk) {
-        this.type = Protocol.ERROR_CORRECTION;
+    public ChunkCorrection(String filePath, List<Integer> corruptedSliceIndexes, List<byte[]> correctSlices) {
+        this.type = Protocol.CHUNK_CORRECTION;
         this.filePath = filePath;
-
-        this.chunk = chunk;
+        this.corruptedSliceIndexes = corruptedSliceIndexes;
+        this.correctSlices = correctSlices;
     }
 
     public ChunkCorrection(byte[] marshalledData) throws IOException {
@@ -37,10 +38,21 @@ public class ChunkCorrection implements Event {
         din.readFully(data);
         this.filePath = new String(data);
 
+        int listLen = din.readInt();
+        this.correctSlices = new ArrayList<>(listLen);
+        for (int i = 0; i < listLen; i++) {
+            len = din.readInt();
+            byte[] payloadData = new byte[len];
+            din.readFully(payloadData);
+            this.correctSlices.add(payloadData);
+        }
+
         len = din.readInt();
-        byte[] payloadData = new byte[len];
-        din.readFully(payloadData);
-        this.chunk = payloadData;
+        this.corruptedSliceIndexes = new ArrayList<>(len);
+        for (int i = 0; i < len; i++) {
+            int index = din.readInt();
+            this.corruptedSliceIndexes.add(index);
+        }
 
         inputData.close();
         din.close();
@@ -57,8 +69,16 @@ public class ChunkCorrection implements Event {
         dout.writeInt(filePath.getBytes().length);
         dout.write(filePath.getBytes());
 
-        dout.writeInt(this.chunk.length);
-        dout.write(this.chunk);
+        dout.writeInt(this.correctSlices.size());
+        for (byte[] slice : correctSlices) {
+            dout.writeInt(slice.length);
+            dout.write(slice);
+        }
+
+        dout.writeInt(corruptedSliceIndexes.size());
+        for (int slice : corruptedSliceIndexes) {
+            dout.writeInt(slice);
+        }
 
         dout.flush();
         marshalledData = outputStream.toByteArray();
