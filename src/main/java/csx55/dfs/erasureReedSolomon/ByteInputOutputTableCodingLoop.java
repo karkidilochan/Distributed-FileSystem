@@ -4,9 +4,9 @@
  * Copyright 2015, Backblaze, Inc.  All rights reserved.
  */
 
-package csx55.dfs.erasure;
+package csx55.dfs.erasureReedSolomon;
 
-public class InputByteOutputTableCodingLoop extends CodingLoopBase {
+public class ByteInputOutputTableCodingLoop extends CodingLoopBase {
 
     @Override
     public void codeSomeShards(
@@ -17,32 +17,28 @@ public class InputByteOutputTableCodingLoop extends CodingLoopBase {
 
         final byte[][] table = Galois.MULTIPLICATION_TABLE;
 
-        {
-            final int iInput = 0;
-            final byte[] inputShard = inputs[iInput];
-            for (int iByte = offset; iByte < offset + byteCount; iByte++) {
+        for (int iByte = offset; iByte < offset + byteCount; iByte++) {
+            {
+                final int iInput = 0;
+                final byte[] inputShard = inputs[iInput];
                 final byte inputByte = inputShard[iByte];
-                final byte[] multTableRow = table[inputByte & 0xFF];
                 for (int iOutput = 0; iOutput < outputCount; iOutput++) {
                     final byte[] outputShard = outputs[iOutput];
                     final byte[] matrixRow = matrixRows[iOutput];
-                    outputShard[iByte] = multTableRow[matrixRow[iInput] & 0xFF];
+                    final byte[] multTableRow = table[matrixRow[iInput] & 0xFF];
+                    outputShard[iByte] = multTableRow[inputByte & 0xFF];
                 }
             }
-        }
-
-        for (int iInput = 1; iInput < inputCount; iInput++) {
-            final byte[] inputShard = inputs[iInput];
-            for (int iByte = offset; iByte < offset + byteCount; iByte++) {
+            for (int iInput = 1; iInput < inputCount; iInput++) {
+                final byte[] inputShard = inputs[iInput];
                 final byte inputByte = inputShard[iByte];
-                final byte[] multTableRow = table[inputByte & 0xFF];
                 for (int iOutput = 0; iOutput < outputCount; iOutput++) {
                     final byte[] outputShard = outputs[iOutput];
                     final byte[] matrixRow = matrixRows[iOutput];
-                    outputShard[iByte] ^= multTableRow[matrixRow[iInput] & 0xFF];
+                    final byte[] multTableRow = table[matrixRow[iInput] & 0xFF];
+                    outputShard[iByte] ^= multTableRow[inputByte & 0xFF];
                 }
             }
         }
     }
-
 }

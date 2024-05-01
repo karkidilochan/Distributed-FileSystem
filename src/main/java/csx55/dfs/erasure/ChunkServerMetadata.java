@@ -1,4 +1,4 @@
-package csx55.dfs.erasurefs;
+package csx55.dfs.erasure;
 
 import java.util.ArrayList;
 import java.util.HashMap;

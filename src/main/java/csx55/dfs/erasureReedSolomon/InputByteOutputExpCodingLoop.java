@@ -4,9 +4,9 @@
  * Copyright 2015, Backblaze, Inc.  All rights reserved.
  */
 
-package csx55.dfs.erasure;
+package csx55.dfs.erasureReedSolomon;
 
-public class ByteInputOutputExpCodingLoop extends CodingLoopBase {
+public class InputByteOutputExpCodingLoop extends CodingLoopBase {
 
     @Override
     public void codeSomeShards(
@@ -15,10 +15,10 @@ public class ByteInputOutputExpCodingLoop extends CodingLoopBase {
             byte[][] outputs, int outputCount,
             int offset, int byteCount) {
 
-        for (int iByte = offset; iByte < offset + byteCount; iByte++) {
-            {
-                final int iInput = 0;
-                final byte[] inputShard = inputs[iInput];
+        {
+            final int iInput = 0;
+            final byte[] inputShard = inputs[iInput];
+            for (int iByte = offset; iByte < offset + byteCount; iByte++) {
                 final byte inputByte = inputShard[iByte];
                 for (int iOutput = 0; iOutput < outputCount; iOutput++) {
                     final byte[] outputShard = outputs[iOutput];
@@ -26,9 +26,11 @@ public class ByteInputOutputExpCodingLoop extends CodingLoopBase {
                     outputShard[iByte] = Galois.multiply(matrixRow[iInput], inputByte);
                 }
             }
+        }
 
-            for (int iInput = 1; iInput < inputCount; iInput++) {
-                final byte[] inputShard = inputs[iInput];
+        for (int iInput = 1; iInput < inputCount; iInput++) {
+            final byte[] inputShard = inputs[iInput];
+            for (int iByte = offset; iByte < offset + byteCount; iByte++) {
                 final byte inputByte = inputShard[iByte];
                 for (int iOutput = 0; iOutput < outputCount; iOutput++) {
                     final byte[] outputShard = outputs[iOutput];

@@ -4,7 +4,7 @@
  * Copyright 2015, Backblaze, Inc.  All rights reserved.
  */
 
-package csx55.dfs.erasure;
+package csx55.dfs.erasureReedSolomon;
 
 public interface CodingLoop {
 

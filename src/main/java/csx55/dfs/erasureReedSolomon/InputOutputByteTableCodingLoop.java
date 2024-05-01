@@ -4,9 +4,9 @@
  * Copyright 2015, Backblaze, Inc.  All rights reserved.
  */
 
-package csx55.dfs.erasure;
+package csx55.dfs.erasureReedSolomon;
 
-public class OutputInputByteTableCodingLoop extends CodingLoopBase {
+public class InputOutputByteTableCodingLoop extends CodingLoopBase {
 
     @Override
     public void codeSomeShards(
@@ -16,19 +16,25 @@ public class OutputInputByteTableCodingLoop extends CodingLoopBase {
             int offset, int byteCount) {
 
         final byte[][] table = Galois.MULTIPLICATION_TABLE;
-        for (int iOutput = 0; iOutput < outputCount; iOutput++) {
-            final byte[] outputShard = outputs[iOutput];
-            final byte[] matrixRow = matrixRows[iOutput];
-            {
-                final int iInput = 0;
-                final byte[] inputShard = inputs[iInput];
+
+        {
+            final int iInput = 0;
+            final byte[] inputShard = inputs[iInput];
+            for (int iOutput = 0; iOutput < outputCount; iOutput++) {
+                final byte[] outputShard = outputs[iOutput];
+                final byte[] matrixRow = matrixRows[iOutput];
                 final byte[] multTableRow = table[matrixRow[iInput] & 0xFF];
                 for (int iByte = offset; iByte < offset + byteCount; iByte++) {
                     outputShard[iByte] = multTableRow[inputShard[iByte] & 0xFF];
                 }
             }
-            for (int iInput = 1; iInput < inputCount; iInput++) {
-                final byte[] inputShard = inputs[iInput];
+        }
+
+        for (int iInput = 1; iInput < inputCount; iInput++) {
+            final byte[] inputShard = inputs[iInput];
+            for (int iOutput = 0; iOutput < outputCount; iOutput++) {
+                final byte[] outputShard = outputs[iOutput];
+                final byte[] matrixRow = matrixRows[iOutput];
                 final byte[] multTableRow = table[matrixRow[iInput] & 0xFF];
                 for (int iByte = offset; iByte < offset + byteCount; iByte++) {
                     outputShard[iByte] ^= multTableRow[inputShard[iByte] & 0xFF];
@@ -48,6 +54,10 @@ public class OutputInputByteTableCodingLoop extends CodingLoopBase {
         if (tempBuffer == null) {
             return super.checkSomeShards(matrixRows, inputs, inputCount, toCheck, checkCount, offset, byteCount, null);
         }
+
+        // This is actually the code from OutputInputByteTableCodingLoop.
+        // Using the loops from this class would require multiple temp
+        // buffers.
 
         final byte[][] table = Galois.MULTIPLICATION_TABLE;
         for (int iOutput = 0; iOutput < checkCount; iOutput++) {
@@ -77,4 +87,5 @@ public class OutputInputByteTableCodingLoop extends CodingLoopBase {
 
         return true;
     }
+
 }

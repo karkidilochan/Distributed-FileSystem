@@ -1,4 +1,4 @@
-package csx55.dfs.erasurefs;
+package csx55.dfs.erasure;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -204,10 +204,6 @@ public class Client implements Node, Protocol {
                 handleRequestChunkResponse((RequestChunkResponse) event, connection);
                 break;
 
-            case Protocol.REPORT_CHUNK_CORRUPTION:
-                handleChunkCorruption((ReportChunkCorruption) event);
-                break;
-
         }
     }
 
@@ -258,7 +254,6 @@ public class Client implements Node, Protocol {
             fileChunkMap.put(destinationPath, new ArrayList<>());
 
             System.out.println("No of chunks: " + chunks.size());
-            System.out.println(chunks);
 
             /* now instead of chunks, ping controller for each of these shards */
             int totalChunksCount = chunks.size();
@@ -278,7 +273,6 @@ public class Client implements Node, Protocol {
 
                 byte[][] encoded = ReedSolomonFunctions.encode(chunks.get(i));
                 System.out.println("Encoding results");
-                System.out.println(encoded);
 
                 // ReedSolomonFunctions.decodeFile(encoded);
 
@@ -364,7 +358,6 @@ public class Client implements Node, Protocol {
             if (sequenceNumber == chunk.totalShardsCount) {
                 chunk.shardsList.clear();
                 // chunkShardsMap.remove(message.getDestinationPath());
-                System.out.println(chunk.shardsList);
 
             }
 
@@ -420,7 +413,6 @@ public class Client implements Node, Protocol {
          */
         /* fetch list of the chunks of this file from cluster */
         List<Chunk> chunks = fileChunkMap.get(clusterPath);
-        System.out.println(chunks);
 
         for (Chunk chunk : chunks) {
             try {
@@ -439,9 +431,7 @@ public class Client implements Node, Protocol {
         int numberOfShards = message.numberOfChunks;
         List<String> shardsList = message.chunksList;
         List<String> shardServerList = message.chunkServerList;
-        System.out.println(message.numberOfChunks);
-        System.out.println(message.chunksList);
-        System.out.println(message.chunkServerList);
+
         for (int i = 0; i < numberOfShards; i++) {
             try {
                 String shardPath = shardsList.get(i);
@@ -509,10 +499,6 @@ public class Client implements Node, Protocol {
              * and later remove it
              */
 
-            System.out.println("checking again");
-            System.out.println(chunk.shardsList);
-            System.out.println(chunk.shardsList.size());
-
             downloadFileChunkMap.computeIfAbsent(downloadPath, k -> new ArrayList<>());
 
             if ((chunk.shardsList.size() == numberOfShards) && !chunk.ready) {
@@ -521,11 +507,6 @@ public class Client implements Node, Protocol {
             }
 
             if (chunk.ready) {
-                System.out.println("checking download map");
-                System.out.println("map size" + downloadFileChunkMap.get(downloadPath).size());
-                System.out.println("chunks counts" + chunk.totalChunksCount);
-                System.out.println("map: " + downloadFileChunkMap);
-                System.out.println("path" + downloadPath);
 
                 if (!readyToWrite) {
                     if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount) {
@@ -566,7 +547,6 @@ public class Client implements Node, Protocol {
             System.out.println("Starting to write file from chunks" + downloadPath);
 
             for (Chunk chunk : chunksList) {
-                System.out.println(chunk.totalShardsCount);
                 List<byte[]> encodedShards = new ArrayList<>(chunk.totalShardsCount);
 
                 for (Map.Entry<Integer, byte[]> entry : chunk.shardsList.entrySet()) {
@@ -575,11 +555,7 @@ public class Client implements Node, Protocol {
 
                 byte[] decodedChunk = ReedSolomonFunctions.decode(encodedShards);
 
-                System.out.println(decodedChunk.length);
-
                 decodedChunks.add(chunk.sequenceNumber - 1, decodedChunk);
-
-                System.out.println(decodedChunk);
 
             }
 
