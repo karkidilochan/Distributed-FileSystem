@@ -11,7 +11,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Formatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import csx55.dfs.wireformats.ChunkMessage;
 
@@ -25,12 +28,13 @@ public class Chunk implements Serializable {
     public int totalChunksCount;
     public int totalShardsCount;
 
-    public List<byte[]> shardsList = new ArrayList<>();
+    public ConcurrentHashMap<Integer, byte[]> shardsList = new ConcurrentHashMap<>();
     // public boolean isCorrupted;
 
-    public Chunk(int sequenceNumber, String filePath) {
+    public Chunk(int sequenceNumber, String filePath, int totalChunksCount) {
         this.sequenceNumber = sequenceNumber;
         this.filePath = filePath;
+        this.totalChunksCount = totalChunksCount;
     }
 
     public void collectShard() {
