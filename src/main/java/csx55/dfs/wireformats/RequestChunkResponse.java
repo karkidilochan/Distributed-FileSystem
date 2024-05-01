@@ -18,15 +18,17 @@ public class RequestChunkResponse implements Event {
     private int type;
     private byte[] chunk;
     private int sequenceNumber;
+    private String chunkPath;
 
     public RequestChunkResponse(String clusterPath, String downloadPath, int sequenceNumber, byte[] chunk,
-            int totalSize) {
+            int totalSize, String chunkPath) {
         this.type = Protocol.REQUEST_CHUNK_RESPONSE;
         this.clusterPath = clusterPath;
         this.downloadPath = downloadPath;
         this.sequenceNumber = sequenceNumber;
         this.chunk = chunk;
         this.totalSize = totalSize;
+        this.chunkPath = chunkPath;
     }
 
     public RequestChunkResponse(byte[] marshalledData) throws IOException {
@@ -49,6 +51,11 @@ public class RequestChunkResponse implements Event {
         data = new byte[len];
         din.readFully(data);
         this.clusterPath = new String(data);
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
+        this.chunkPath = new String(data);
 
         len = din.readInt();
         byte[] payloadData = new byte[len];
@@ -76,6 +83,9 @@ public class RequestChunkResponse implements Event {
 
         dout.writeInt(clusterPath.getBytes().length);
         dout.write(clusterPath.getBytes());
+
+        dout.writeInt(chunkPath.getBytes().length);
+        dout.write(chunkPath.getBytes());
 
         dout.writeInt(this.chunk.length);
         dout.write(this.chunk);
@@ -111,6 +121,10 @@ public class RequestChunkResponse implements Event {
 
     public int getTotalSize() {
         return totalSize;
+    }
+
+    public String getChunkPath() {
+        return chunkPath;
     }
 
 }

@@ -295,9 +295,10 @@ public class ChunkServer implements Node, Protocol {
 
             /* now validate the chunk to see if any corruption exists */
             // if (chunk.getDigest(chunkRead).equals(chunk.chunkHash)) {
+            System.out.println("shard chunk path:" + message.sequenceNumber + " " + message.chunkPath);
             RequestChunkResponse response = new RequestChunkResponse(message.clusterPath, message.downloadPath,
                     message.sequenceNumber,
-                    chunkRead, message.totalSize);
+                    chunkRead, message.totalSize, message.chunkPath);
             connection.getTCPSenderThread().sendData(response.getBytes());
             // } else {
             // /*

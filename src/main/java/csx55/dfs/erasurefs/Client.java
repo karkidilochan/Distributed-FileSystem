@@ -58,10 +58,13 @@ public class Client implements Node, Protocol {
     private ConcurrentHashMap<String, List<Chunk>> fileChunkMap = new ConcurrentHashMap<>();
 
     /* chunk filename _chunk1 and shards map */
-    private ConcurrentHashMap<String, List<byte[]>> chunkShardsMap = new ConcurrentHashMap<>();
+    // private ConcurrentHashMap<String, List<byte[]>> chunkShardsMap = new
+    // ConcurrentHashMap<>();
 
     /* chunk filename _chunk1 and shards map */
     private ConcurrentHashMap<String, List<Chunk>> downloadFileChunkMap = new ConcurrentHashMap<>();
+
+    private volatile boolean readyToWrite = false;
 
     private TCPConnection controllerConnection;
 
@@ -277,23 +280,28 @@ public class Client implements Node, Protocol {
                 System.out.println("Encoding results");
                 System.out.println(encoded);
 
-                List<byte[]> shards = new ArrayList<byte[]>();
+                // ReedSolomonFunctions.decodeFile(encoded);
 
-                for (byte[] array : encoded) {
-                    shards.add(array);
+                // List<byte[]> shards = new ArrayList<byte[]>();
+
+                // for (byte[] array : encoded) {
+                // shards.add(array);
+                // }
+                for (i = 0; i < encoded.length; i++) {
+                    chunk.shardsList.put(i, encoded[i]);
                 }
 
-                chunk.totalShardsCount = shards.size();
+                chunk.totalShardsCount = encoded.length;
 
-                chunkShardsMap.put(chunk.filePath, shards);
+                // chunkShardsMap.put(chunk.filePath, shards);
 
                 /*
                  * * then for each shard send message to controller
                  */
-                for (i = 0; i < shards.size(); i++) {
+                for (i = 0; i < chunk.shardsList.size(); i++) {
                     controllerConnection.getTCPSenderThread()
                             .sendData((new FetchChunkServers(chunk.filePath, i + 1,
-                                    shards.size())).getBytes());
+                                    chunk.totalShardsCount)).getBytes());
                 }
 
                 /* TODO: keep a sleep here for this thread */
@@ -315,9 +323,14 @@ public class Client implements Node, Protocol {
          */
 
         try {
-            List<byte[]> shards = chunkShardsMap.get(message.getDestinationPath());
+            String[] parts = message.getDestinationPath().split("_chunk");
+            String baseFilename = parts[0]; // "demo.txt"
+            int chunkSequenceNo = Integer.valueOf(parts[1]);
+
+            Chunk chunk = fileChunkMap.get(baseFilename).get(chunkSequenceNo - 1);
+
             int sequenceNumber = message.getSequence();
-            byte[] shard = shards.get(sequenceNumber - 1);
+            byte[] shard = chunk.shardsList.get(sequenceNumber - 1);
 
             List<String> chunkServers = message.getList();
             String chunkServer = chunkServers.get(0);
@@ -348,9 +361,10 @@ public class Client implements Node, Protocol {
              * remove the file from files chunk map after all the chunk sequence have been
              * stored
              */
-            if (sequenceNumber == shards.size()) {
-                chunkShardsMap.remove(message.getDestinationPath());
-                System.out.println(chunkShardsMap);
+            if (sequenceNumber == chunk.totalShardsCount) {
+                chunk.shardsList.clear();
+                // chunkShardsMap.remove(message.getDestinationPath());
+                System.out.println(chunk.shardsList);
 
             }
 
@@ -430,8 +444,10 @@ public class Client implements Node, Protocol {
         System.out.println(message.chunkServerList);
         for (int i = 0; i < numberOfShards; i++) {
             try {
+                String shardPath = shardsList.get(i);
+                int sequenceNo = Integer.valueOf(shardPath.split("_shard")[1]);
                 RequestChunk request = new RequestChunk(message.clusterPath, message.downloadPath,
-                        shardsList.get(i), i + 1, numberOfShards, this.hostIP, this.nodePort);
+                        shardPath, sequenceNo, numberOfShards, this.hostIP, this.nodePort);
 
                 String shardServer = shardServerList.get(i);
 
@@ -461,7 +477,8 @@ public class Client implements Node, Protocol {
             String downloadPath = message.getFilePath();
             String chunkName = message.getParentChunkPath();
 
-            System.out.println("Receivd shard for sequence no: " + message.getSequence());
+            System.out.println(
+                    "Received shard for sequence no: " + message.getSequence() + " " + message.getChunkPath());
             // chunkShardsMap.computeIfAbsent(chunkName, k -> new
             // ArrayList<>(numberOfShards));
 
@@ -496,17 +513,32 @@ public class Client implements Node, Protocol {
             System.out.println(chunk.shardsList);
             System.out.println(chunk.shardsList.size());
 
-            if (chunk.shardsList.size() == numberOfShards) {
-                downloadFileChunkMap.computeIfAbsent(downloadPath, k -> new ArrayList<>()).add(chunk);
+            downloadFileChunkMap.computeIfAbsent(downloadPath, k -> new ArrayList<>());
+
+            if ((chunk.shardsList.size() == numberOfShards) && !chunk.ready) {
+                chunk.ready = true;
+
+            }
+
+            if (chunk.ready) {
                 System.out.println("checking download map");
                 System.out.println("map size" + downloadFileChunkMap.get(downloadPath).size());
                 System.out.println("chunks counts" + chunk.totalChunksCount);
-                System.out.println(downloadFileChunkMap);
-                if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount) {
+                System.out.println("map: " + downloadFileChunkMap);
+                System.out.println("path" + downloadPath);
 
-                    writeFile(downloadPath, downloadFileChunkMap.get(downloadPath));
-                    downloadFileChunkMap.remove(downloadPath);
+                if (!readyToWrite) {
+                    if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount) {
+                        readyToWrite = true;
+                        writeFile(downloadPath, downloadFileChunkMap.get(downloadPath));
+                        downloadFileChunkMap.remove(downloadPath);
+                        chunk.ready = false;
+                        readyToWrite = false;
 
+                    } else {
+                        downloadFileChunkMap.get(downloadPath).add(chunk);
+
+                    }
                 }
 
             }
@@ -541,7 +573,7 @@ public class Client implements Node, Protocol {
                     encodedShards.add(entry.getKey(), entry.getValue());
                 }
 
-                byte[] decodedChunk = ReedSolomonFunctions.decodeFile(encodedShards);
+                byte[] decodedChunk = ReedSolomonFunctions.decode(encodedShards);
 
                 System.out.println(decodedChunk.length);
 

@@ -28,6 +28,8 @@ public class Chunk implements Serializable {
     public int totalChunksCount;
     public int totalShardsCount;
 
+    public volatile boolean ready = false;
+
     public ConcurrentHashMap<Integer, byte[]> shardsList = new ConcurrentHashMap<>();
     // public boolean isCorrupted;
 
