@@ -3,7 +3,8 @@
  *
  * Copyright 2015, Backblaze, Inc.
  */
-package csx55.dfs.utils;
+
+package csx55.dfs.erasure;
 
 /**
  * Reed-Solomon Coding over 8-bit values.

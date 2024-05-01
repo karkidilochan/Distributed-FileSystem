@@ -3,7 +3,7 @@ package csx55.dfs.utils;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
-import erasure.ReedSolomon;
+import csx55.dfs.erasure.ReedSolomon;
 
 public class ReedSolomonFunctions {
     public static final int DATA_SHARDS = 4;
@@ -68,7 +68,7 @@ public class ReedSolomonFunctions {
         // Use Reed-Solomon to calculate the parity. Parity codes
         // will be stored in the last two positions in 'shards' 2-D array.
         System.out.println("instantiated");
-        ReedSolomon reedSolomon = new ReedSolomon(DATA_SHARDS,
+        ReedSolomon reedSolomon = ReedSolomon.create(DATA_SHARDS,
                 PARITY_SHARDS);
         System.out.println("now encoding");
         reedSolomon.encodeParity(shards, 0, shardSize);
@@ -115,7 +115,7 @@ public class ReedSolomonFunctions {
         }
 
         // Use Reed-Solomon to fill in the missing shards
-        ReedSolomon reedSolomon = new ReedSolomon(DATA_SHARDS,
+        ReedSolomon reedSolomon = ReedSolomon.create(DATA_SHARDS,
                 PARITY_SHARDS);
         reedSolomon.decodeMissing(shards, shardPresent, 0, shardSize);
 

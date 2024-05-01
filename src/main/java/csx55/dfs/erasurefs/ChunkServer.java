@@ -1,4 +1,4 @@
-package csx55.dfs.erasure;
+package csx55.dfs.erasurefs;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -216,11 +216,11 @@ public class ChunkServer implements Node, Protocol {
         /* this keeps delay 0 and period of 2 minutes = 2 * 60 * 1000 milliseconds */
         // int majorHeartbeatInterval = 120000;
 
-        timerMajorHeartbeat.schedule(new csx55.dfs.erasure.HeartBeat(true, this.controllerConnection, this),
+        timerMajorHeartbeat.schedule(new csx55.dfs.erasurefs.HeartBeat(true, this.controllerConnection, this),
                 0, 120000);
 
         /* minor heartbeat interval should be 15 seconds */
-        timerMinorHeartbeat.schedule(new csx55.dfs.erasure.HeartBeat(false, controllerConnection, this), 0,
+        timerMinorHeartbeat.schedule(new csx55.dfs.erasurefs.HeartBeat(false, controllerConnection, this), 0,
                 15000);
 
         System.out.println("Received registration response from the discovery: " + response.toString());
