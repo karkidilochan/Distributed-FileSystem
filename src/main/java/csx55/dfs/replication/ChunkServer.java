@@ -21,7 +21,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
-import csx55.dfs.utils.HeartBeat;
 import csx55.dfs.utils.Node;
 import csx55.dfs.wireformats.ChunkCorrection;
 import csx55.dfs.wireformats.ChunkMessage;

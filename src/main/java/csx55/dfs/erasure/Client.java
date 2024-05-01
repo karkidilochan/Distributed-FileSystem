@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
 import csx55.dfs.utils.Node;
+import csx55.dfs.utils.ReedSolomonFunctions;
 import csx55.dfs.wireformats.ChunkServerList;
 import csx55.dfs.wireformats.ChunkMessage;
 import csx55.dfs.wireformats.ChunkMessageResponse;
@@ -86,11 +87,11 @@ public class Client implements Node, Protocol {
             Client node = new Client(
                     InetAddress.getLocalHost().getHostName(), hostIP, nodePort);
 
-            /* start a new TCP server thread */
-            (new Thread(new TCPServer(node, serverSocket))).start();
+            // /* start a new TCP server thread */
+            // (new Thread(new TCPServer(node, serverSocket))).start();
 
-            // register this node with the registry
-            node.registerNode(args[0], Integer.valueOf(args[1]));
+            // // register this node with the registry
+            // node.registerNode(args[0], Integer.valueOf(args[1]));
 
             // facilitate user input in the console
             node.takeCommands();
@@ -161,8 +162,8 @@ public class Client implements Node, Protocol {
                         break;
                 }
             }
-        } catch (Exception e) {
-            System.err.println("An error occurred during command processing: " + e.getMessage());
+        } catch (Throwable e) {
+            System.out.println("An error occurred during command processing: " + e.getMessage());
             e.printStackTrace();
         } finally {
             System.out.println("De-registering the node and terminating: " + hostName + ":" + nodePort);
@@ -198,6 +199,7 @@ public class Client implements Node, Protocol {
 
             case Protocol.REPORT_CHUNK_CORRUPTION:
                 handleChunkCorruption((ReportChunkCorruption) event);
+                break;
 
         }
     }
@@ -210,13 +212,13 @@ public class Client implements Node, Protocol {
         /*
          * while exiting, send all the files you were responsible for to your successor
          */
-        try {
-            // controllerConnection.getTCPSenderThread().sendData(register.getBytes());
-            controllerConnection.close();
-        } catch (IOException | InterruptedException e) {
-            System.out.println(e.getMessage());
-            e.printStackTrace();
-        }
+        // try {
+        // // controllerConnection.getTCPSenderThread().sendData(register.getBytes());
+        // controllerConnection.close();
+        // } catch (IOException | InterruptedException e) {
+        // System.out.println(e.getMessage());
+        // e.printStackTrace();
+        // }
     }
 
     public String getIPAddress() {
@@ -246,27 +248,36 @@ public class Client implements Node, Protocol {
         try {
 
             List<byte[]> chunks = getChunks(sourcePath);
-            fileChunkMap.put(destinationPath, new ArrayList<>());
+            // fileChunkMap.put(destinationPath, new ArrayList<>());
 
             System.out.println("No of chunks: " + chunks.size());
+            System.out.println(chunks);
 
             /* now instead of chunks, ping controller for each of these shards */
 
-            for (int i = 1; i < chunks.size() + 1; i++) {
+            for (int i = 0; i < chunks.size(); i++) {
                 /*
                  * for each chunk, get its shards
                  * create new chunk object, hook it with the file name -> fileChunkMap
                  * then fetch shards for it, hook them to this chunk -> chunkShardsMap
                  */
 
-                Chunk chunk = new Chunk(i, destinationPath + "_chunk" + i);
+                Chunk chunk = new Chunk(i + 1, destinationPath + "_chunk" + i + 1);
 
-                fileChunkMap.get(destinationPath).add(chunk);
+                // fileChunkMap.get(destinationPath).add(chunk);
                 // chunkShardsMap.put(chunk.filePath, new ArrayList<>());
 
                 /* get the shards for this chunk here */
                 List<byte[]> shards = new ArrayList<>();
-                chunkShardsMap.put(chunk.filePath, shards);
+                // chunkShardsMap.put(chunk.filePath, shards);
+
+                byte[][] encoded = ReedSolomonFunctions.encode(chunks.get(i));
+                System.out.println("Encoding results");
+                System.out.println(encoded);
+
+                byte[] decoded = ReedSolomonFunctions.decode(encoded);
+                System.out.println("decoding results");
+                System.out.println(decoded);
 
                 /*
                  * * then for each shard send message to controller
@@ -278,7 +289,7 @@ public class Client implements Node, Protocol {
                 /* TODO: keep a sleep here for this thread */
             }
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             System.out.println("Error sending chunk servers fetch request: " + e.getMessage());
             e.printStackTrace();
         }
@@ -340,8 +351,6 @@ public class Client implements Node, Protocol {
     }
 
     private List<byte[]> getChunks(String filePath) throws IOException {
-
-        System.out.println(this.DATA_DIRECTORY);
 
         Path totalPath = Paths.get(this.DATA_DIRECTORY, filePath);
         byte[] fileData = Files.readAllBytes(totalPath);
@@ -417,29 +426,31 @@ public class Client implements Node, Protocol {
     }
 
     private void handleRequestChunkResponse(RequestChunkResponse message, TCPConnection connection) {
-        try {
-            int numberOfChunks = message.getTotalSize();
-            String downloadPath = message.getFilePath();
-            fileChunksMap.computeIfAbsent(downloadPath, k -> new ArrayList<>(numberOfChunks));
+        // try {
+        // int numberOfChunks = message.getTotalSize();
+        // String downloadPath = message.getFilePath();
+        // fileChunksMap.computeIfAbsent(downloadPath, k -> new
+        // ArrayList<>(numberOfChunks));
 
-            System.out.println(fileChunksMap);
+        // System.out.println(fileChunksMap);
 
-            fileChunksMap.get(downloadPath).add(message.getSequence() - 1, message.getChunk());
+        // fileChunksMap.get(downloadPath).add(message.getSequence() - 1,
+        // message.getChunk());
 
-            System.out.println(fileChunksMap);
-            connection.close();
+        // System.out.println(fileChunksMap);
+        // connection.close();
 
-            System.out.println(fileChunksMap.get(downloadPath).size());
+        // System.out.println(fileChunksMap.get(downloadPath).size());
 
-            if (fileChunksMap.get(downloadPath).size() == numberOfChunks) {
-                writeFile(downloadPath, fileChunksMap.get(downloadPath));
-                fileChunksMap.remove(downloadPath);
-            }
+        // if (fileChunksMap.get(downloadPath).size() == numberOfChunks) {
+        // writeFile(downloadPath, fileChunksMap.get(downloadPath));
+        // fileChunksMap.remove(downloadPath);
+        // }
 
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-            e.printStackTrace();
-        }
+        // } catch (Exception e) {
+        // System.out.println(e.getMessage());
+        // e.printStackTrace();
+        // }
     }
 
     private void writeFile(String downloadPath, List<byte[]> chunksList) {

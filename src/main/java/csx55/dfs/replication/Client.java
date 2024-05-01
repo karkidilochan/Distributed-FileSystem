@@ -195,6 +195,7 @@ public class Client implements Node, Protocol {
 
             case Protocol.REPORT_CHUNK_CORRUPTION:
                 handleChunkCorruption((ReportChunkCorruption) event);
+                break;
 
         }
     }
