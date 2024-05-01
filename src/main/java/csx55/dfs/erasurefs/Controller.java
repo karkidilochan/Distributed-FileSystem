@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Scanner;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -132,6 +133,14 @@ public class Controller implements Node {
 
             case Protocol.REPORT_CHUNK_CORRUPTION:
                 handleChunkCorruption((ReportChunkCorruption) event);
+                break;
+
+            case Protocol.MAJOR_HEARTBEAT:
+                handleMajorHeartbeat((MajorHeartbeat) event);
+                break;
+
+            case Protocol.MINOR_HEARTBEAT:
+                handleMinorHeartbeat((MinorHeartbeat) event);
                 break;
 
         }
@@ -322,21 +331,29 @@ public class Controller implements Node {
         List<Map.Entry<String, ChunkServerMetadata>> sortedServers = new ArrayList<>(chunkServersMetadata.entrySet());
         Collections.sort(sortedServers,
                 (a, b) -> Long.compare(b.getValue().getFreeSpace(), a.getValue().getFreeSpace()));
-        List<Map.Entry<String, ChunkServerMetadata>> topThreeServers = sortedServers.subList(0,
-                Math.min(1, sortedServers.size()));
+
+        // List<Map.Entry<String, ChunkServerMetadata>> topThreeServers =
+        // sortedServers.subList(0,
+        // Math.min(, sortedServers.size()));
 
         System.out.println("sortedServers " + sortedServers);
-        System.out.println(topThreeServers);
 
-        for (Map.Entry<String, ChunkServerMetadata> entry : topThreeServers) {
+        for (Map.Entry<String, ChunkServerMetadata> entry : sortedServers) {
             fileChunkServers.add(entry.getKey());
 
         }
 
-        System.out.println("fileChunkServers: " + fileChunkServers);
+        Random random = new Random();
+        int randomIndex = random.nextInt(fileChunkServers.size());
+        String randomElement = fileChunkServers.get(randomIndex);
+
+        List<String> result = new ArrayList<>();
+        result.add(randomElement);
+
+        System.out.println("fileChunkServers: " + result);
 
         try {
-            ChunkServerList message = new ChunkServerList(fileChunkServers,
+            ChunkServerList message = new ChunkServerList(result,
                     request.getDestinationPath(), request.getSequence());
             connection.getTCPSenderThread().sendData(message.getBytes());
 

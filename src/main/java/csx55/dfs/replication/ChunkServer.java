@@ -396,7 +396,8 @@ public class ChunkServer implements Node, Protocol {
 
             /* now validate the chunk to see if any corruption exists */
             if (chunk.getDigest(chunkRead).equals(chunk.chunkHash)) {
-                RequestChunkResponse response = new RequestChunkResponse(message.downloadPath, message.sequenceNumber,
+                RequestChunkResponse response = new RequestChunkResponse(message.clusterPath, message.downloadPath,
+                        message.sequenceNumber,
                         chunkRead, message.totalSize);
                 connection.getTCPSenderThread().sendData(response.getBytes());
             } else {
@@ -457,7 +458,8 @@ public class ChunkServer implements Node, Protocol {
             connection.start();
 
             /* now send the correct request response to requesting client */
-            RequestChunkResponse clientResponse = new RequestChunkResponse(message.downloadPath, message.sequenceNumber,
+            RequestChunkResponse clientResponse = new RequestChunkResponse(message.clusterPath, message.downloadPath,
+                    message.sequenceNumber,
                     chunkRead, message.totalSize);
 
             System.out.println(message.requestingClientIP + " " + message.requestingClientPort);

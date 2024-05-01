@@ -13,13 +13,16 @@ import java.util.List;
 public class RequestChunkResponse implements Event {
     /* filepath is the destination path */
     private String downloadPath;
+    private String clusterPath;
     private int totalSize;
     private int type;
     private byte[] chunk;
     private int sequenceNumber;
 
-    public RequestChunkResponse(String downloadPath, int sequenceNumber, byte[] chunk, int totalSize) {
+    public RequestChunkResponse(String clusterPath, String downloadPath, int sequenceNumber, byte[] chunk,
+            int totalSize) {
         this.type = Protocol.REQUEST_CHUNK_RESPONSE;
+        this.clusterPath = clusterPath;
         this.downloadPath = downloadPath;
         this.sequenceNumber = sequenceNumber;
         this.chunk = chunk;
@@ -41,6 +44,11 @@ public class RequestChunkResponse implements Event {
         byte[] data = new byte[len];
         din.readFully(data);
         this.downloadPath = new String(data);
+
+        len = din.readInt();
+        data = new byte[len];
+        din.readFully(data);
+        this.clusterPath = new String(data);
 
         len = din.readInt();
         byte[] payloadData = new byte[len];
@@ -66,6 +74,9 @@ public class RequestChunkResponse implements Event {
         dout.writeInt(downloadPath.getBytes().length);
         dout.write(downloadPath.getBytes());
 
+        dout.writeInt(clusterPath.getBytes().length);
+        dout.write(clusterPath.getBytes());
+
         dout.writeInt(this.chunk.length);
         dout.write(this.chunk);
 
@@ -84,6 +95,10 @@ public class RequestChunkResponse implements Event {
 
     public String getFilePath() {
         return downloadPath;
+    }
+
+    public String getParentChunkPath() {
+        return clusterPath;
     }
 
     public int getType() {

@@ -10,10 +10,3 @@ sourceSets {
 	}	
 }
 
-
-
-dependencies {
-    libs files('libs/reed-solomon-erasure-coding.jar')
-}
-
-
