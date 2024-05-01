@@ -336,7 +336,6 @@ public class Controller implements Node {
         // sortedServers.subList(0,
         // Math.min(, sortedServers.size()));
 
-        System.out.println("sortedServers " + sortedServers);
 
         for (Map.Entry<String, ChunkServerMetadata> entry : sortedServers) {
             fileChunkServers.add(entry.getKey());
@@ -389,8 +388,7 @@ public class Controller implements Node {
                     .filter(key -> key.contains(message.clusterPath))
                     .collect(Collectors.toList());
 
-            System.out.println(message.clusterPath);
-            System.out.println(keysContainingClusterPath);
+            
 
             List<String> validChunkServers = new ArrayList<>();
 
@@ -399,7 +397,6 @@ public class Controller implements Node {
                 validChunkServers.add(targetServer);
             }
 
-            System.out.println(validChunkServers);
 
             FetchChunksListResponse response = new FetchChunksListResponse(keysContainingClusterPath.size(),
                     keysContainingClusterPath, validChunkServers, message.clusterPath, message.downloadPath);
@@ -413,7 +410,6 @@ public class Controller implements Node {
     private String getValidChunkServer(List<ChunkServerMetadata> servers, String chunkFile) throws Exception {
 
         for (ChunkServerMetadata server : servers) {
-            System.out.println(server.fileChunksList);
             boolean checkIfFileInvalid = server.fileChunksList.get(chunkFile);
             if (server.isAlive && !checkIfFileInvalid) {
                 return server.getFullAddress();
@@ -440,8 +436,7 @@ public class Controller implements Node {
                 server.fileChunksList.put(message.chunkPath, true);
                 String validServer = getValidChunkServer(chunkAndServerMap.get(message.chunkPath), message.chunkPath);
 
-                System.out.println(validServer);
-                System.out.println(server.ipAddress + server.port);
+                
                 ErrorCorrection payload = new ErrorCorrection(message.chunkPath,
                         server.ipAddress,
                         server.port, message.clusterPath, message.downloadPath, message.sequenceNumber,
@@ -525,8 +520,7 @@ public class Controller implements Node {
                 }
 
             }
-            System.out.println(affectedChunksReplicaMap);
-            System.out.println(bestCandidate.getFullAddress());
+       
 
             /*
              * now for affectedChunksReplicaMap entries, in a loop

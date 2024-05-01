@@ -271,7 +271,6 @@ public class ChunkServer implements Node, Protocol {
                 allChunksList.add(chunk.filePath);
                 newChunksList.add(chunk.filePath);
 
-                System.out.println(message.getReplicas());
 
                 /* now send the chunk to replicas */
                 sendChunkToReplica(message.getFilePath(), message.getSequence(), message.getChunk(),
@@ -305,8 +304,7 @@ public class ChunkServer implements Node, Protocol {
             String forwardReplica, boolean forward) {
 
         try {
-            System.out.println(targetReplica);
-            System.out.println(forwardReplica);
+            
             Socket socketToPeer = new Socket(targetReplica.split(":")[0], Integer.valueOf(targetReplica.split(":")[1]));
             TCPConnection connection = new TCPConnection(this, socketToPeer);
 
@@ -373,7 +371,7 @@ public class ChunkServer implements Node, Protocol {
     private void handleCreateReplicaResponse(CreateReplicaResponse message, TCPConnection connection) {
         System.out.println("Received chunk replica response from the chunk server: " + message.toString());
         try {
-            connection.close();
+            // connection.close();
         } catch (Exception e) {
             System.out.println(e.getMessage());
             e.printStackTrace();
@@ -462,7 +460,7 @@ public class ChunkServer implements Node, Protocol {
                     message.sequenceNumber,
                     chunkRead, message.totalSize, message.clusterPath);
 
-            System.out.println(message.requestingClientIP + " " + message.requestingClientPort);
+            System.out.println("Requesting Client: " + message.requestingClientIP + " " + message.requestingClientPort);
 
             Socket socketToClient = new Socket(message.requestingClientIP,
                     message.requestingClientPort);
@@ -488,10 +486,7 @@ public class ChunkServer implements Node, Protocol {
             byte[] corruptedChunk = Files.readAllBytes(Paths.get(message.filePath));
             List<byte[]> corruptSlices = getSlices(corruptedChunk);
 
-            System.out.println(corruptedChunk);
-            System.out.println(corruptSlices);
-            System.out.println(message.corruptedSliceIndexes);
-            System.out.println(message.correctSlices);
+
 
             for (int i = 0; i < message.corruptedSliceIndexes.size(); i++) {
                 corruptSlices.set(message.corruptedSliceIndexes.get(i), message.correctSlices.get(i));

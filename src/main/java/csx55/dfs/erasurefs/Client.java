@@ -258,7 +258,6 @@ public class Client implements Node, Protocol {
             fileChunkMap.put(destinationPath, new ArrayList<>());
 
             System.out.println("No of chunks: " + chunks.size());
-            System.out.println(chunks);
 
             /* now instead of chunks, ping controller for each of these shards */
             int totalChunksCount = chunks.size();
@@ -278,7 +277,7 @@ public class Client implements Node, Protocol {
 
                 byte[][] encoded = ReedSolomonFunctions.encode(chunks.get(i));
                 System.out.println("Encoding results");
-                System.out.println(encoded);
+
 
                 // ReedSolomonFunctions.decodeFile(encoded);
 
@@ -364,7 +363,7 @@ public class Client implements Node, Protocol {
             if (sequenceNumber == chunk.totalShardsCount) {
                 chunk.shardsList.clear();
                 // chunkShardsMap.remove(message.getDestinationPath());
-                System.out.println(chunk.shardsList);
+                // System.out.println(chunk.shardsList);
 
             }
 
@@ -392,7 +391,6 @@ public class Client implements Node, Protocol {
             /* keeping length of bytes to read either chunksize or remaining bytes left */
             length = Math.min(chunkSize, fileData.length - offset);
             chunk = new byte[length];
-            System.arraycopy(fileData, offset, chunk, 0, length);
             chunks.add(chunk);
             offset += length;
         }
@@ -420,7 +418,7 @@ public class Client implements Node, Protocol {
          */
         /* fetch list of the chunks of this file from cluster */
         List<Chunk> chunks = fileChunkMap.get(clusterPath);
-        System.out.println(chunks);
+        // System.out.println(chunks);
 
         for (Chunk chunk : chunks) {
             try {
@@ -509,9 +507,7 @@ public class Client implements Node, Protocol {
              * and later remove it
              */
 
-            System.out.println("checking again");
-            System.out.println(chunk.shardsList);
-            System.out.println(chunk.shardsList.size());
+       
 
             downloadFileChunkMap.computeIfAbsent(downloadPath, k -> new ArrayList<>());
 
@@ -521,11 +517,7 @@ public class Client implements Node, Protocol {
             }
 
             if (chunk.ready) {
-                System.out.println("checking download map");
-                System.out.println("map size" + downloadFileChunkMap.get(downloadPath).size());
-                System.out.println("chunks counts" + chunk.totalChunksCount);
-                System.out.println("map: " + downloadFileChunkMap);
-                System.out.println("path" + downloadPath);
+
 
                 if (!readyToWrite) {
                     if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount) {
@@ -575,11 +567,9 @@ public class Client implements Node, Protocol {
 
                 byte[] decodedChunk = ReedSolomonFunctions.decode(encodedShards);
 
-                System.out.println(decodedChunk.length);
 
                 decodedChunks.add(chunk.sequenceNumber - 1, decodedChunk);
 
-                System.out.println(decodedChunk);
 
             }
 

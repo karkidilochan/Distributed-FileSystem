@@ -246,7 +246,7 @@ public class Client implements Node, Protocol {
             List<byte[]> chunks = getChunks(sourcePath);
             fileChunksMap.put(destinationPath, chunks);
 
-            System.out.println(chunks.size());
+            System.out.println("Chunks count:" + chunks.size());
 
             for (int i = 1; i < chunks.size() + 1; i++) {
                 controllerConnection.getTCPSenderThread()
@@ -317,7 +317,6 @@ public class Client implements Node, Protocol {
 
     private List<byte[]> getChunks(String filePath) throws IOException {
 
-        System.out.println(this.DATA_DIRECTORY);
 
         Path totalPath = Paths.get(this.DATA_DIRECTORY, filePath);
         byte[] fileData = Files.readAllBytes(totalPath);
@@ -367,9 +366,7 @@ public class Client implements Node, Protocol {
     }
 
     private void handleFetchChunksResponse(FetchChunksListResponse message) {
-        System.out.println(message.numberOfChunks);
-        System.out.println(message.chunksList);
-        System.out.println(message.chunkServerList);
+  
         for (int i = 0; i < message.numberOfChunks; i++) {
             try {
                 RequestChunk request = new RequestChunk(message.clusterPath, message.downloadPath,
@@ -398,14 +395,11 @@ public class Client implements Node, Protocol {
             String downloadPath = message.getFilePath();
             fileChunksMap.computeIfAbsent(downloadPath, k -> new ArrayList<>(numberOfChunks));
 
-            System.out.println(fileChunksMap);
 
             fileChunksMap.get(downloadPath).add(message.getSequence() - 1, message.getChunk());
 
-            System.out.println(fileChunksMap);
             connection.close();
 
-            System.out.println(fileChunksMap.get(downloadPath).size());
 
             if (fileChunksMap.get(downloadPath).size() == numberOfChunks) {
                 writeFile(downloadPath, fileChunksMap.get(downloadPath));

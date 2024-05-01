@@ -219,7 +219,7 @@ public class ChunkServer implements Node, Protocol {
         timerMinorHeartbeat.schedule(new csx55.dfs.erasurefs.HeartBeat(false, controllerConnection, this), 0,
                 15000);
 
-        System.out.println("Received registration response from the discovery: " + response.toString());
+        System.out.println("Received registration response from the controller: " + response.toString());
     }
 
     private void handleShardUpload(ChunkMessage message, TCPConnection connection) {
@@ -256,14 +256,14 @@ public class ChunkServer implements Node, Protocol {
                 // message.getReplicas().get(1), true);
             } else {
                 status = Protocol.FAILURE;
-                response = "Chunk creation failed.";
+                response = "Shard creation failed.";
             }
 
             ChunkMessageResponse request = new ChunkMessageResponse(status, response, message.getSequence());
             connection.getTCPSenderThread().sendData(request.getBytes());
 
         } catch (Exception e) {
-            System.out.println("Error while handling chunk upload" + e.getMessage());
+            System.out.println("Error while handling shard upload" + e.getMessage());
             e.printStackTrace();
         }
 
@@ -295,7 +295,7 @@ public class ChunkServer implements Node, Protocol {
 
             /* now validate the chunk to see if any corruption exists */
             // if (chunk.getDigest(chunkRead).equals(chunk.chunkHash)) {
-            System.out.println("shard chunk path:" + message.sequenceNumber + " " + message.chunkPath);
+            System.out.println("Shard chunk path:" + message.sequenceNumber + " " + message.chunkPath);
             RequestChunkResponse response = new RequestChunkResponse(message.clusterPath, message.downloadPath,
                     message.sequenceNumber,
                     chunkRead, message.totalSize, message.chunkPath);
@@ -354,10 +354,7 @@ public class ChunkServer implements Node, Protocol {
             byte[] corruptedChunk = Files.readAllBytes(Paths.get(message.filePath));
             List<byte[]> corruptSlices = getSlices(corruptedChunk);
 
-            System.out.println(corruptedChunk);
-            System.out.println(corruptSlices);
-            System.out.println(message.corruptedSliceIndexes);
-            System.out.println(message.correctSlices);
+    
 
             for (int i = 0; i < message.corruptedSliceIndexes.size(); i++) {
                 corruptSlices.set(message.corruptedSliceIndexes.get(i), message.correctSlices.get(i));
