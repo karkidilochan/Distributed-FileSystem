@@ -4,9 +4,9 @@
  * Copyright 2015, Backblaze, Inc.  All rights reserved.
  */
 
-package csx55.dfs.erasure;
+package csx55.dfs.erasureReedSolomon;
 
-public class OutputInputByteExpCodingLoop extends CodingLoopBase {
+public class InputOutputByteExpCodingLoop extends CodingLoopBase {
 
     @Override
     public void codeSomeShards(
@@ -15,19 +15,24 @@ public class OutputInputByteExpCodingLoop extends CodingLoopBase {
             byte[][] outputs, int outputCount,
             int offset, int byteCount) {
 
-        for (int iOutput = 0; iOutput < outputCount; iOutput++) {
-            final byte[] outputShard = outputs[iOutput];
-            final byte[] matrixRow = matrixRows[iOutput];
-            {
-                final int iInput = 0;
-                final byte[] inputShard = inputs[iInput];
+        {
+            final int iInput = 0;
+            final byte[] inputShard = inputs[iInput];
+            for (int iOutput = 0; iOutput < outputCount; iOutput++) {
+                final byte[] outputShard = outputs[iOutput];
+                final byte[] matrixRow = matrixRows[iOutput];
                 final byte matrixByte = matrixRow[iInput];
                 for (int iByte = offset; iByte < offset + byteCount; iByte++) {
                     outputShard[iByte] = Galois.multiply(matrixByte, inputShard[iByte]);
                 }
             }
-            for (int iInput = 1; iInput < inputCount; iInput++) {
-                final byte[] inputShard = inputs[iInput];
+        }
+
+        for (int iInput = 1; iInput < inputCount; iInput++) {
+            final byte[] inputShard = inputs[iInput];
+            for (int iOutput = 0; iOutput < outputCount; iOutput++) {
+                final byte[] outputShard = outputs[iOutput];
+                final byte[] matrixRow = matrixRows[iOutput];
                 final byte matrixByte = matrixRow[iInput];
                 for (int iByte = offset; iByte < offset + byteCount; iByte++) {
                     outputShard[iByte] ^= Galois.multiply(matrixByte, inputShard[iByte]);
@@ -35,5 +40,4 @@ public class OutputInputByteExpCodingLoop extends CodingLoopBase {
             }
         }
     }
-
 }

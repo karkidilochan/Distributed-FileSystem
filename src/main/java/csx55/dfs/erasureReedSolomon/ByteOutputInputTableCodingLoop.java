@@ -4,9 +4,9 @@
  * Copyright 2015, Backblaze, Inc.  All rights reserved.
  */
 
-package csx55.dfs.erasure;
+package csx55.dfs.erasureReedSolomon;
 
-public class ByteOutputInputExpCodingLoop extends CodingLoopBase {
+public class ByteOutputInputTableCodingLoop extends CodingLoopBase {
 
     @Override
     public void codeSomeShards(
@@ -15,16 +15,16 @@ public class ByteOutputInputExpCodingLoop extends CodingLoopBase {
             byte[][] outputs, int outputCount,
             int offset, int byteCount) {
 
+        byte[][] table = Galois.MULTIPLICATION_TABLE;
         for (int iByte = offset; iByte < offset + byteCount; iByte++) {
             for (int iOutput = 0; iOutput < outputCount; iOutput++) {
                 byte[] matrixRow = matrixRows[iOutput];
                 int value = 0;
                 for (int iInput = 0; iInput < inputCount; iInput++) {
-                    value ^= Galois.multiply(matrixRow[iInput], inputs[iInput][iByte]);
+                    value ^= table[matrixRow[iInput] & 0xFF][inputs[iInput][iByte] & 0xFF];
                 }
                 outputs[iOutput][iByte] = (byte) value;
             }
         }
     }
-
 }

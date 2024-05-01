@@ -120,8 +120,6 @@ public class Chunk implements Serializable {
             /* also create the checksum for this slice and add it to hashes list */
 
             String sliceDigest = getDigest(slice);
-            System.out.println(sliceDigest);
-            System.out.println(sliceHashes.get(sliceIndex));
 
             if (!sliceDigest.equals(sliceHashes.get(sliceIndex))) {
                 corruptedSliceIndexes.add(sliceIndex);

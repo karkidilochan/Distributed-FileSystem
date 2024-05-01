@@ -10,10 +10,9 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 
-import csx55.dfs.erasure.ReedSolomon;
+import csx55.dfs.erasureReedSolomon.ReedSolomon;
 
 public class ReedSolomonFunctions {
-    private final String DATA_DIRECTORY = System.getProperty("user.home") + "/Documents/cs555/distributed-fs/data/";
 
     public static final int DATA_SHARDS = 6;
 
@@ -174,7 +173,6 @@ public class ReedSolomonFunctions {
         for (int i = 0; i < TOTAL_SHARDS; i++) {
             shards[i] = shardsList.get(i);
             shardSize = (int) shardsList.get(i).length;
-            System.out.println(shardSize);
             shardPresent[i] = true;
             shardCount += 1;
 

@@ -1,4 +1,4 @@
-package csx55.dfs.erasurefs;
+package csx55.dfs.erasure;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -212,11 +212,11 @@ public class ChunkServer implements Node, Protocol {
         /* this keeps delay 0 and period of 2 minutes = 2 * 60 * 1000 milliseconds */
         // int majorHeartbeatInterval = 120000;
 
-        timerMajorHeartbeat.schedule(new csx55.dfs.erasurefs.HeartBeat(true, this.controllerConnection, this),
+        timerMajorHeartbeat.schedule(new csx55.dfs.erasure.HeartBeat(true, this.controllerConnection, this),
                 0, 120000);
 
         /* minor heartbeat interval should be 15 seconds */
-        timerMinorHeartbeat.schedule(new csx55.dfs.erasurefs.HeartBeat(false, controllerConnection, this), 0,
+        timerMinorHeartbeat.schedule(new csx55.dfs.erasure.HeartBeat(false, controllerConnection, this), 0,
                 15000);
 
         System.out.println("Received registration response from the discovery: " + response.toString());
@@ -295,7 +295,7 @@ public class ChunkServer implements Node, Protocol {
 
             /* now validate the chunk to see if any corruption exists */
             // if (chunk.getDigest(chunkRead).equals(chunk.chunkHash)) {
-            System.out.println("shard chunk path:" + message.sequenceNumber + " " + message.chunkPath);
+            System.out.println("Shard chunk path:" + message.sequenceNumber + " " + message.chunkPath);
             RequestChunkResponse response = new RequestChunkResponse(message.clusterPath, message.downloadPath,
                     message.sequenceNumber,
                     chunkRead, message.totalSize, message.chunkPath);
@@ -353,11 +353,6 @@ public class ChunkServer implements Node, Protocol {
         try {
             byte[] corruptedChunk = Files.readAllBytes(Paths.get(message.filePath));
             List<byte[]> corruptSlices = getSlices(corruptedChunk);
-
-            System.out.println(corruptedChunk);
-            System.out.println(corruptSlices);
-            System.out.println(message.corruptedSliceIndexes);
-            System.out.println(message.correctSlices);
 
             for (int i = 0; i < message.corruptedSliceIndexes.size(); i++) {
                 corruptSlices.set(message.corruptedSliceIndexes.get(i), message.correctSlices.get(i));
