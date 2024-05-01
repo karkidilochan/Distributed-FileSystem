@@ -1,108 +1,342 @@
+/**
+ * Reed-Solomon Coding over 8-bit values.
+ *
+ * Copyright 2015, Backblaze, Inc.
+ */
 package csx55.dfs.utils;
 
-import java.nio.ByteBuffer;
-import java.util.Map;
-
-import erasure.ReedSolomon;
-
+/**
+ * Reed-Solomon Coding over 8-bit values.
+ */
 public class ReedSolomon {
-    public static final int DATA_SHARDS = 4;
 
-    public static final int PARITY_SHARDS = 2;
-    public static final int TOTAL_SHARDS = 6;
+    private final int dataShardCount;
+    private final int parityShardCount;
+    private final int totalShardCount;
+    private final Matrix matrix;
+    private final CodingLoop codingLoop;
 
-    public static final int BYTES_IN_INT = 4;
+    /**
+     * Rows from the matrix for encoding parity, each one as its own
+     * byte array to allow for efficient access while encoding.
+     */
+    private final byte[][] parityRows;
 
-    /* this will take each chunk byte array and return encode total shard */
-    public static void encode(byte[] chunk) {
-        /* this is the original data */
-
-        // file size
-        // int fileSize = (int) inputFile.length();
-
-        // total size of the stored data = length of the payload size
-        int storedSize = chunk.length + BYTES_IN_INT;
-
-        // size of a shard. Make sure all the shards are of the same size.
-        // In order to do this, you can padd 0s at the end.
-        // This particular code works for 4 data shards.
-        // Based on the number of shards, use a appropriate way to
-        // decide on shard size.
-        int shardSize = (storedSize + DATA_SHARDS - 1) / DATA_SHARDS;
-
-        // Create a buffer holding the file size, followed by the contents of the file
-        // (and padding if required)
-        int bufferSize = shardSize * DATA_SHARDS;
-
-        /* this is the place to copy the chunk into */
-        byte[] allBytes = new byte[bufferSize];
-
-        /*
-         * You should implement the code for copying the file size, payload and
-         * padding into the byte array in here.
-         */
-        ByteBuffer.wrap(allBytes).putInt(chunk.length);
-        System.arraycopy(chunk, 0, allBytes, BYTES_IN_INT, chunk.length);
-
-        // Make the buffers to hold the shards.
-        byte[][] shards = new byte[TOTAL_SHARDS][shardSize];
-
-        // Fill in the data shards
-        for (int i = 0; i < DATA_SHARDS; i++) {
-            System.arraycopy(allBytes, i * shardSize, shards[i], 0, shardSize);
-        }
-
-        // Use Reed-Solomon to calculate the parity. Parity codes
-        // will be stored in the last two positions in 'shards' 2-D array.
-        ReedSolomon reedSolomon = new ReedSolomon(DATA_SHARDS, PARITY_SHARDS);
-        reedSolomon.encodeParity(shards, 0, shardSize);
-
-        // finally store the contents of the 'shards' 2-D array
-        System.out.println(shards);
+    /**
+     * Creates a ReedSolomon codec with the default coding loop.
+     */
+    public static ReedSolomon create(int dataShardCount, int parityShardCount) {
+        return new ReedSolomon(dataShardCount, parityShardCount, new InputOutputByteTableCodingLoop());
     }
 
-    public static void decode(Map<Integer, byte[]> shardMap) {
+    /**
+     * Initializes a new encoder/decoder, with a chosen coding loop.
+     */
+    public ReedSolomon(int dataShardCount, int parityShardCount, CodingLoop codingLoop) {
 
-        // Read in any of the shards that are present.
-        // (There should be checking here to make sure the input
-        // shards are the same size, but there isn't.)
-        byte[][] shards = new byte[TOTAL_SHARDS][];
-        boolean[] shardPresent = new boolean[TOTAL_SHARDS];
-        int shardSize = 0;
-        int shardCount = 0;
-        // now read the shards from the persistance store
-        for (int i = 0; i < TOTAL_SHARDS; i++) {
-            // Check if the shard is available.
-            // If avaialbe, read its content into shards[i]
-            // set shardPresent[i] = true and increase the shardCount by 1.
-            if (shardMap.containsKey(i)) {
-                shardPresent[i] = true;
-                shards[i] = shardMap.get(i);
-                shardCount += 1;
-            }
+        // We can have at most 256 shards total, as any more would
+        // lead to duplicate rows in the Vandermonde matrix, which
+        // would then lead to duplicate rows in the built matrix
+        // below. Then any subset of the rows containing the duplicate
+        // rows would be singular.
+        if (256 < dataShardCount + parityShardCount) {
+            throw new IllegalArgumentException("too many shards - max is 256");
         }
 
-        // We need at least DATA_SHARDS to be able to reconstruct the file.
-        if (shardCount < DATA_SHARDS) {
+        this.dataShardCount = dataShardCount;
+        this.parityShardCount = parityShardCount;
+        this.codingLoop = codingLoop;
+        this.totalShardCount = dataShardCount + parityShardCount;
+        matrix = buildMatrix(dataShardCount, this.totalShardCount);
+        parityRows = new byte[parityShardCount][];
+        for (int i = 0; i < parityShardCount; i++) {
+            parityRows[i] = matrix.getRow(dataShardCount + i);
+        }
+    }
+
+    /**
+     * Returns the number of data shards.
+     */
+    public int getDataShardCount() {
+        return dataShardCount;
+    }
+
+    /**
+     * Returns the number of parity shards.
+     */
+    public int getParityShardCount() {
+        return parityShardCount;
+    }
+
+    /**
+     * Returns the total number of shards.
+     */
+    public int getTotalShardCount() {
+        return totalShardCount;
+    }
+
+    /**
+     * Encodes parity for a set of data shards.
+     *
+     * @param shards    An array containing data shards followed by parity shards.
+     *                  Each shard is a byte array, and they must all be the same
+     *                  size.
+     * @param offset    The index of the first byte in each shard to encode.
+     * @param byteCount The number of bytes to encode in each shard.
+     *
+     */
+    public void encodeParity(byte[][] shards, int offset, int byteCount) {
+        // Check arguments.
+        checkBuffersAndSizes(shards, offset, byteCount);
+
+        // Build the array of output buffers.
+        byte[][] outputs = new byte[parityShardCount][];
+        System.arraycopy(shards, dataShardCount, outputs, 0, parityShardCount);
+
+        // Do the coding.
+        codingLoop.codeSomeShards(
+                parityRows,
+                shards, dataShardCount,
+                outputs, parityShardCount,
+                offset, byteCount);
+    }
+
+    /**
+     * Returns true if the parity shards contain the right data.
+     *
+     * @param shards    An array containing data shards followed by parity shards.
+     *                  Each shard is a byte array, and they must all be the same
+     *                  size.
+     * @param firstByte The index of the first byte in each shard to check.
+     * @param byteCount The number of bytes to check in each shard.
+     */
+    public boolean isParityCorrect(byte[][] shards, int firstByte, int byteCount) {
+        // Check arguments.
+        checkBuffersAndSizes(shards, firstByte, byteCount);
+
+        // Build the array of buffers being checked.
+        byte[][] toCheck = new byte[parityShardCount][];
+        System.arraycopy(shards, dataShardCount, toCheck, 0, parityShardCount);
+
+        // Do the checking.
+        return codingLoop.checkSomeShards(
+                parityRows,
+                shards, dataShardCount,
+                toCheck, parityShardCount,
+                firstByte, byteCount,
+                null);
+    }
+
+    /**
+     * Returns true if the parity shards contain the right data.
+     *
+     * This method may be significantly faster than the one above that does
+     * not use a temporary buffer.
+     *
+     * @param shards     An array containing data shards followed by parity shards.
+     *                   Each shard is a byte array, and they must all be the same
+     *                   size.
+     * @param firstByte  The index of the first byte in each shard to check.
+     * @param byteCount  The number of bytes to check in each shard.
+     * @param tempBuffer A temporary buffer (the same size as each of the
+     *                   shards) to use when computing parity.
+     */
+    public boolean isParityCorrect(byte[][] shards, int firstByte, int byteCount, byte[] tempBuffer) {
+        // Check arguments.
+        checkBuffersAndSizes(shards, firstByte, byteCount);
+        if (tempBuffer.length < firstByte + byteCount) {
+            throw new IllegalArgumentException("tempBuffer is not big enough");
+        }
+
+        // Build the array of buffers being checked.
+        byte[][] toCheck = new byte[parityShardCount][];
+        System.arraycopy(shards, dataShardCount, toCheck, 0, parityShardCount);
+
+        // Do the checking.
+        return codingLoop.checkSomeShards(
+                parityRows,
+                shards, dataShardCount,
+                toCheck, parityShardCount,
+                firstByte, byteCount,
+                tempBuffer);
+    }
+
+    /**
+     * Given a list of shards, some of which contain data, fills in the
+     * ones that don't have data.
+     *
+     * Quickly does nothing if all of the shards are present.
+     *
+     * If any shards are missing (based on the flags in shardsPresent),
+     * the data in those shards is recomputed and filled in.
+     */
+    public void decodeMissing(byte[][] shards,
+            boolean[] shardPresent,
+            final int offset,
+            final int byteCount) {
+        // Check arguments.
+        checkBuffersAndSizes(shards, offset, byteCount);
+
+        // Quick check: are all of the shards present? If so, there's
+        // nothing to do.
+        int numberPresent = 0;
+        for (int i = 0; i < totalShardCount; i++) {
+            if (shardPresent[i]) {
+                numberPresent += 1;
+            }
+        }
+        if (numberPresent == totalShardCount) {
+            // Cool. All of the shards data data. We don't
+            // need to do anything.
             return;
         }
 
-        // Make empty buffers for the missing shards.
-        for (int i = 0; i < TOTAL_SHARDS; i++) {
-            if (!shardPresent[i]) {
-                shards[i] = new byte[shardSize];
+        // More complete sanity check
+        if (numberPresent < dataShardCount) {
+            throw new IllegalArgumentException("Not enough shards present");
+        }
+
+        // Pull out the rows of the matrix that correspond to the
+        // shards that we have and build a square matrix. This
+        // matrix could be used to generate the shards that we have
+        // from the original data.
+        //
+        // Also, pull out an array holding just the shards that
+        // correspond to the rows of the submatrix. These shards
+        // will be the input to the decoding process that re-creates
+        // the missing data shards.
+        Matrix subMatrix = new Matrix(dataShardCount, dataShardCount);
+        byte[][] subShards = new byte[dataShardCount][];
+        {
+            int subMatrixRow = 0;
+            for (int matrixRow = 0; matrixRow < totalShardCount && subMatrixRow < dataShardCount; matrixRow++) {
+                if (shardPresent[matrixRow]) {
+                    for (int c = 0; c < dataShardCount; c++) {
+                        subMatrix.set(subMatrixRow, c, matrix.get(matrixRow, c));
+                    }
+                    subShards[subMatrixRow] = shards[matrixRow];
+                    subMatrixRow += 1;
+                }
             }
         }
 
-        // Use Reed-Solomon to fill in the missing shards
-        ReedSolomon reedSolomon = new ReedSolomon(DATA_SHARDS, PARITY_SHARDS);
-        reedSolomon.decodeMissing(shards, shardPresent, 0, shardSize);
+        // Invert the matrix, so we can go from the encoded shards
+        // back to the original data. Then pull out the row that
+        // generates the shard that we want to decode. Note that
+        // since this matrix maps back to the orginal data, it can
+        // be used to create a data shard, but not a parity shard.
+        Matrix dataDecodeMatrix = subMatrix.invert();
 
-        byte[] allBytes = new byte[shardSize * DATA_SHARDS];
-        for (int i = 0; i < DATA_SHARDS; i++) {
-            System.arraycopy(shards[i], 0, allBytes, shardSize * i, shardSize);
+        // Re-create any data shards that were missing.
+        //
+        // The input to the coding is all of the shards we actually
+        // have, and the output is the missing data shards. The computation
+        // is done using the special decode matrix we just built.
+        byte[][] outputs = new byte[parityShardCount][];
+        byte[][] matrixRows = new byte[parityShardCount][];
+        int outputCount = 0;
+        for (int iShard = 0; iShard < dataShardCount; iShard++) {
+            if (!shardPresent[iShard]) {
+                outputs[outputCount] = shards[iShard];
+                matrixRows[outputCount] = dataDecodeMatrix.getRow(iShard);
+                outputCount += 1;
+            }
+        }
+        codingLoop.codeSomeShards(
+                matrixRows,
+                subShards, dataShardCount,
+                outputs, outputCount,
+                offset, byteCount);
+
+        // Now that we have all of the data shards intact, we can
+        // compute any of the parity that is missing.
+        //
+        // The input to the coding is ALL of the data shards, including
+        // any that we just calculated. The output is whichever of the
+        // data shards were missing.
+        outputCount = 0;
+        for (int iShard = dataShardCount; iShard < totalShardCount; iShard++) {
+            if (!shardPresent[iShard]) {
+                outputs[outputCount] = shards[iShard];
+                matrixRows[outputCount] = parityRows[iShard - dataShardCount];
+                outputCount += 1;
+            }
+        }
+        codingLoop.codeSomeShards(
+                matrixRows,
+                shards, dataShardCount,
+                outputs, outputCount,
+                offset, byteCount);
+    }
+
+    /**
+     * Checks the consistency of arguments passed to public methods.
+     */
+    private void checkBuffersAndSizes(byte[][] shards, int offset, int byteCount) {
+        // The number of buffers should be equal to the number of
+        // data shards plus the number of parity shards.
+        if (shards.length != totalShardCount) {
+            throw new IllegalArgumentException("wrong number of shards: " + shards.length);
         }
 
-        System.out.println(allBytes);
+        // All of the shard buffers should be the same length.
+        int shardLength = shards[0].length;
+        for (int i = 1; i < shards.length; i++) {
+            if (shards[i].length != shardLength) {
+                throw new IllegalArgumentException("Shards are different sizes");
+            }
+        }
+
+        // The offset and byteCount must be non-negative and fit in the buffers.
+        if (offset < 0) {
+            throw new IllegalArgumentException("offset is negative: " + offset);
+        }
+        if (byteCount < 0) {
+            throw new IllegalArgumentException("byteCount is negative: " + byteCount);
+        }
+        if (shardLength < offset + byteCount) {
+            throw new IllegalArgumentException("buffers to small: " + byteCount + offset);
+        }
+    }
+
+    /**
+     * Create the matrix to use for encoding, given the number of
+     * data shards and the number of total shards.
+     *
+     * The top square of the matrix is guaranteed to be an identity
+     * matrix, which means that the data shards are unchanged after
+     * encoding.
+     */
+    private static Matrix buildMatrix(int dataShards, int totalShards) {
+        // Start with a Vandermonde matrix. This matrix would work,
+        // in theory, but doesn't have the property that the data
+        // shards are unchanged after encoding.
+        Matrix vandermonde = vandermonde(totalShards, dataShards);
+
+        // Multiple by the inverse of the top square of the matrix.
+        // This will make the top square be the identity matrix, but
+        // preserve the property that any square subset of rows is
+        // invertible.
+        Matrix top = vandermonde.submatrix(0, 0, dataShards, dataShards);
+        return vandermonde.times(top.invert());
+    }
+
+    /**
+     * Create a Vandermonde matrix, which is guaranteed to have the
+     * property that any subset of rows that forms a square matrix
+     * is invertible.
+     *
+     * @param rows Number of rows in the result.
+     * @param cols Number of columns in the result.
+     * @return A Matrix.
+     */
+    private static Matrix vandermonde(int rows, int cols) {
+        Matrix result = new Matrix(rows, cols);
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                result.set(r, c, Galois.exp((byte) r, c));
+            }
+        }
+        return result;
     }
 }

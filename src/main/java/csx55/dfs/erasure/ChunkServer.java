@@ -17,9 +17,9 @@ import java.util.Timer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import csx55.dfs.replication.HeartBeat;
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.tcp.TCPServer;
-import csx55.dfs.utils.HeartBeat;
 import csx55.dfs.utils.Node;
 import csx55.dfs.wireformats.ChunkCorrection;
 import csx55.dfs.wireformats.ChunkMessage;
@@ -216,11 +216,11 @@ public class ChunkServer implements Node, Protocol {
         /* this keeps delay 0 and period of 2 minutes = 2 * 60 * 1000 milliseconds */
         // int majorHeartbeatInterval = 120000;
 
-        timerMajorHeartbeat.schedule(new HeartBeat(true, this.controllerConnection, this),
+        timerMajorHeartbeat.schedule(new csx55.dfs.erasure.HeartBeat(true, this.controllerConnection, this),
                 0, 120000);
 
         /* minor heartbeat interval should be 15 seconds */
-        timerMinorHeartbeat.schedule(new HeartBeat(false, controllerConnection, this), 0,
+        timerMinorHeartbeat.schedule(new csx55.dfs.erasure.HeartBeat(false, controllerConnection, this), 0,
                 15000);
 
         System.out.println("Received registration response from the discovery: " + response.toString());
@@ -293,51 +293,57 @@ public class ChunkServer implements Node, Protocol {
          * through heartbeat
          * 
          */
-        try {
-            Chunk chunk = chunkFileShardMap.get(message.clusterPath).get(message.sequenceNumber - 1);
-            File file = new File(message.chunkPath);
-            byte[] chunkRead = Files.readAllBytes(file.toPath());
+        // try {
+        // Chunk chunk =
+        // chunkFileShardMap.get(message.clusterPath).get(message.sequenceNumber - 1);
+        // File file = new File(message.chunkPath);
+        // byte[] chunkRead = Files.readAllBytes(file.toPath());
 
-            /* now validate the chunk to see if any corruption exists */
-            if (chunk.getDigest(chunkRead).equals(chunk.chunkHash)) {
-                RequestChunkResponse response = new RequestChunkResponse(message.downloadPath, message.sequenceNumber,
-                        chunkRead, message.totalSize);
-                connection.getTCPSenderThread().sendData(response.getBytes());
-            } else {
-                /*
-                 * file is corrupted
-                 * find the slice thats corrupted and print it
-                 * 
-                 */
-                List<Integer> indexes = chunk.findCorruptedSlice(chunkRead);
-                System.out.println("Found a corrupted chunk for file: " + message.clusterPath + "at chunk sequence: "
-                        + message.sequenceNumber + "and at slice indexes: ");
-                for (int index : indexes) {
-                    System.out.println(index);
-                }
+        // /* now validate the chunk to see if any corruption exists */
+        // if (chunk.getDigest(chunkRead).equals(chunk.chunkHash)) {
+        // RequestChunkResponse response = new
+        // RequestChunkResponse(message.downloadPath, message.sequenceNumber,
+        // chunkRead, message.totalSize);
+        // connection.getTCPSenderThread().sendData(response.getBytes());
+        // } else {
+        // /*
+        // * file is corrupted
+        // * find the slice thats corrupted and print it
+        // *
+        // */
+        // List<Integer> indexes = chunk.findCorruptedSlice(chunkRead);
+        // System.out.println("Found a corrupted chunk for file: " + message.clusterPath
+        // + "at chunk sequence: "
+        // + message.sequenceNumber + "and at slice indexes: ");
+        // for (int index : indexes) {
+        // System.out.println(index);
+        // }
 
-                String requestingClientIP = message.requestingClientIP;
-                int requestingClientPort = message.requestingClientPort;
+        // String requestingClientIP = message.requestingClientIP;
+        // int requestingClientPort = message.requestingClientPort;
 
-                System.out.println("requesting client: " + requestingClientIP + requestingClientPort);
-                /* Report chunk corruption to controller */
-                ReportChunkCorruption report = new ReportChunkCorruption(fullAddress, message.clusterPath,
-                        message.downloadPath, chunk.filePath, false, message.sequenceNumber, message.totalSize,
-                        requestingClientIP, requestingClientPort, indexes);
+        // System.out.println("requesting client: " + requestingClientIP +
+        // requestingClientPort);
+        // /* Report chunk corruption to controller */
+        // ReportChunkCorruption report = new ReportChunkCorruption(fullAddress,
+        // message.clusterPath,
+        // message.downloadPath, chunk.filePath, false, message.sequenceNumber,
+        // message.totalSize,
+        // requestingClientIP, requestingClientPort, indexes);
 
-                /*
-                 * inform only controller about corruption for correction
-                 * inform client to wait
-                 */
-                connection.getTCPSenderThread().sendData(report.getBytes());
-                controllerConnection.getTCPSenderThread().sendData(report.getBytes());
+        // /*
+        // * inform only controller about corruption for correction
+        // * inform client to wait
+        // */
+        // connection.getTCPSenderThread().sendData(report.getBytes());
+        // controllerConnection.getTCPSenderThread().sendData(report.getBytes());
 
-            }
+        // }
 
-        } catch (Exception e) {
-            System.out.println("Error while reading chunk file: " + e.getMessage());
-            e.printStackTrace();
-        }
+        // } catch (Exception e) {
+        // System.out.println("Error while reading chunk file: " + e.getMessage());
+        // e.printStackTrace();
+        // }
 
     }
 

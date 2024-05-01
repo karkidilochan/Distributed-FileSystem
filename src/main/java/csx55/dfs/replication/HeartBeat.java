@@ -1,9 +1,8 @@
-package csx55.dfs.utils;
+package csx55.dfs.replication;
 
 import java.util.TimerTask;
 import java.io.IOException;
 
-import csx55.dfs.replication.ChunkServer;
 import csx55.dfs.tcp.TCPConnection;
 import csx55.dfs.wireformats.MajorHeartbeat;
 import csx55.dfs.wireformats.MinorHeartbeat;
