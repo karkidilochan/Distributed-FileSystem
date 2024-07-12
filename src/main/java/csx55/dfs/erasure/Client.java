@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
@@ -62,7 +64,7 @@ public class Client implements Node, Protocol {
     // ConcurrentHashMap<>();
 
     /* chunk filename _chunk1 and shards map */
-    private ConcurrentHashMap<String, List<Chunk>> downloadFileChunkMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, HashMap<Integer, Chunk>> downloadFileChunkMap = new ConcurrentHashMap<>();
 
     private volatile boolean readyToWrite = false;
 
@@ -499,30 +501,45 @@ public class Client implements Node, Protocol {
              * and later remove it
              */
 
-            downloadFileChunkMap.computeIfAbsent(downloadPath, k -> new ArrayList<>());
+            downloadFileChunkMap.computeIfAbsent(downloadPath, k -> new HashMap<>());
 
-            if ((chunk.shardsList.size() == numberOfShards) && !chunk.ready) {
-                chunk.ready = true;
+            System.out.println("shards list size:" + chunk.shardsList.size());
+            System.out.println("number of shards: " + numberOfShards);
 
-            }
+            if ((chunk.shardsList.size() == numberOfShards)) {
+                downloadFileChunkMap.get(downloadPath).put(chunk.sequenceNumber, chunk);
+                System.out.println("Download chunk map: " + downloadFileChunkMap);
 
-            if (chunk.ready) {
+                System.out.println(downloadFileChunkMap.get(downloadPath).size());
 
-                if (!readyToWrite) {
-                    if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount) {
+                if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount) {
+                    if (!readyToWrite) {
                         readyToWrite = true;
-                        writeFile(downloadPath, downloadFileChunkMap.get(downloadPath));
-                        downloadFileChunkMap.remove(downloadPath);
-                        chunk.ready = false;
-                        readyToWrite = false;
-
-                    } else {
-                        downloadFileChunkMap.get(downloadPath).add(chunk);
-
+                        System.out.println("Map is ready to write");
+                        Thread.sleep(3000);
+                        writeFile(downloadPath, downloadFileChunkMap.get(downloadPath).values());
                     }
                 }
-
             }
+
+            // if (chunk.ready) {
+
+            // if (!readyToWrite) {
+            // if (downloadFileChunkMap.get(downloadPath).size() == chunk.totalChunksCount)
+            // {
+            // readyToWrite = true;
+            // writeFile(downloadPath, downloadFileChunkMap.get(downloadPath));
+            // downloadFileChunkMap.remove(downloadPath);
+            // chunk.ready = false;
+            // readyToWrite = false;
+
+            // } else {
+            // downloadFileChunkMap.get(downloadPath).add(chunk);
+
+            // }
+            // }
+
+            // }
 
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -530,7 +547,7 @@ public class Client implements Node, Protocol {
         }
     }
 
-    private void writeFile(String downloadPath, List<Chunk> chunksList) {
+    private void writeFile(String downloadPath, Collection<Chunk> chunksList) {
         try {
             /*
              * now for each chunk in the chunksList
@@ -578,6 +595,8 @@ public class Client implements Node, Protocol {
         } catch (Exception e) {
             System.out.println("Error while writing file from chunks: " + e.getMessage());
             e.printStackTrace();
+        } finally {
+            readyToWrite = false;
         }
 
     }
