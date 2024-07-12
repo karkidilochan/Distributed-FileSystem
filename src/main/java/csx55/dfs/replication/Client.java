@@ -346,7 +346,7 @@ public class Client implements Node, Protocol {
     private void handleChunkTransferResponse(ChunkMessageResponse message, TCPConnection connection) {
         System.out.println("Received chunk transfer response from the chunk server: " + message.toString());
         try {
-            connection.close();
+            // connection.close();
 
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -403,7 +403,7 @@ public class Client implements Node, Protocol {
             fileChunksMap.get(downloadPath).add(message.getSequence() - 1, message.getChunk());
 
             System.out.println(fileChunksMap);
-            connection.close();
+            // connection.close();
 
             System.out.println(fileChunksMap.get(downloadPath).size());
 
