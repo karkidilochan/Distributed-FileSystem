@@ -53,17 +53,17 @@ A distributed, fault-tolerant file system implementation in Java that supports b
 
 1. Start the Controller:
 ```bash
-java com.distributed.fs.controller.Controller <port>
+java com.distributed.dfs.controller.Controller <port>
 ```
 
 2. Start Chunk Servers:
 ```bash
-java com.distributed.fs.chunkserver.ChunkServer <controller-ip> <controller-port>
+java com.distributed.dfs.chunkserver.ChunkServer <controller-ip> <controller-port>
 ```
 
 3. Start Client:
 ```bash
-java com.distributed.fs.client.Client <controller-ip> <controller-port>
+java com.distributed.dfs.client.Client <controller-ip> <controller-port>
 ```
 
 ### Basic Operations
