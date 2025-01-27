@@ -15,17 +15,16 @@ A distributed, fault-tolerant file system implementation in Java that supports b
 
 
 ## 🏗️ System Architecture
-
-```mermaid
-    Client --> Controller
-    Controller --> ChunkServer1
-    Controller --> ChunkServer2
-    Controller --> ChunkServerN
-    Client --> ChunkServer1
-    Client --> ChunkServer2
-    Client --> ChunkServerN
-    ChunkServer1 --> ChunkServer2
-    ChunkServer2 --> ChunkServer3
+```plaintext
+Client --> Controller
+Controller --> ChunkServer1
+Controller --> ChunkServer2
+Controller --> ChunkServerN
+Client --> ChunkServer1
+Client --> ChunkServer2
+Client --> ChunkServerN
+ChunkServer1 --> ChunkServer2
+ChunkServer2 --> ChunkServerN
 ```
 
 ### Core Components
